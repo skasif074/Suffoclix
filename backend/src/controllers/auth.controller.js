@@ -151,4 +151,67 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe };
+const googleLogin = async (req, res) => {
+  try {
+    const { name, email, photo } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email is required.' 
+      });
+    }
+
+    // Check if user exists
+    const [existing] = await db.query(
+      'SELECT * FROM users WHERE email = ?', [email]
+    );
+
+    let user;
+
+    if (existing.length > 0) {
+      // Login existing user
+      user = existing[0];
+    } else {
+      // Register new user
+      const randomPassword = await bcrypt.hash(Math.random().toString(36), 10);
+      const [result] = await db.query(
+        'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
+        [name, email, randomPassword, 'user']
+      );
+      user = {
+        id: result.insertId,
+        name,
+        email,
+        role: 'user',
+        is_subscribed: false
+      };
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN }
+    );
+
+    res.json({
+      success: true,
+      message: 'Google login successful!',
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        is_subscribed: user.is_subscribed
+      }
+    });
+
+  } catch (err) {
+    console.error('GoogleLogin error:', err);
+    res.status(500).json({ success: false, message: 'Server error.' });
+  }
+};
+
+module.exports = { register, login, getMe, googleLogin };

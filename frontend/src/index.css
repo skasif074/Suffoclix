@@ -318,6 +318,13 @@ select.input option {
   justify-content: space-between;
 }
 
+.card:hover .play-btn {
+  opacity: 1 !important;
+}
+.card:hover .play-overlay {
+  background: rgba(0,0,0,0.3) !important;
+}
+
 /* Responsive text */
 @media (max-width: 600px) {
   .container { padding: 0 16px; }

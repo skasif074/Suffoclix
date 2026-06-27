@@ -90,6 +90,15 @@ export const adminAPI = {
   toggleSubscription: (id, data) => API.patch(`/api/admin/users/${id}/subscription`, data),
   getSubscription: () => API.get('/api/admin/subscription'),
   updateSubscriptionPrice: (data) => API.put('/api/admin/subscription-price', data),
+  googleLogin: (data) => API.post('/api/auth/google', data),
+};
+
+
+export const paymentAPI = {
+  getPlans: () => API.get('/api/payment/plans'),
+  createOrder: (data) => API.post('/api/payment/create-order', data),
+  verifyPayment: (data) => API.post('/api/payment/verify', data),
+  getHistory: () => API.get('/api/payment/history'),
 };
 
 export default API;
