@@ -1,5 +1,10 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithRedirect,
+  getRedirectResult
+} from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAgA5dPTJlDnqGMk7G08mFB7jFlMFXFnjE",
@@ -14,34 +19,33 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-googleProvider.setCustomParameters({
-  prompt: 'select_account'
-});
-
-// Google Sign In
 export const signInWithGoogle = async () => {
+  await signInWithRedirect(auth, googleProvider);
+  return { success: false, message: 'Redirecting...' };
+};
+
+export const handleRedirectResult = async () => {
   try {
-    const result = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
-    const token = await user.getIdToken();
+    const result = await getRedirectResult(auth);
+    if (!result) return null;
     return {
       success: true,
-      token,
       user: {
-        name: user.displayName,
-        email: user.email,
-        photo: user.photoURL,
+        name: result.user.displayName,
+        email: result.user.email,
+        photo: result.user.photoURL,
       }
     };
   } catch (err) {
-    return { success: false, message: err.message };
+    console.error('Redirect result error:', err);
+    return null;
   }
 };
 
-// Google Sign Out
 export const signOutGoogle = async () => {
-  await signOut(auth);
+  await auth.signOut();
 };
 
 export default app;

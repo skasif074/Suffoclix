@@ -24,6 +24,13 @@ app.use('/api/playlists', require('./routes/playlist.routes'));
 app.use('/api/watch', require('./routes/watch.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 
+
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+  next();
+});
+
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 

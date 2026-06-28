@@ -19,10 +19,15 @@ router.get('/', getAllVideos);
 // GET /api/content/:id
 router.get('/:id', getVideo);
 
-// GET /api/content/:id/stream (protected)
-router.get('/:id/stream', auth, streamVideo);
+// GET /api/content/:id/stream (token in query or header)
+router.get('/:id/stream', (req, res, next) => {
+  if (req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+}, auth, streamVideo);
 
-// POST /api/content/chunk (admin - upload one chunk)
+// POST /api/content/chunk (admin only)
 router.post(
   '/chunk',
   auth,
@@ -31,7 +36,7 @@ router.post(
   uploadChunkController
 );
 
-// POST /api/content/merge (admin - merge all chunks)
+// POST /api/content/merge (admin only)
 router.post(
   '/merge',
   auth,
@@ -40,10 +45,10 @@ router.post(
   mergeChunks
 );
 
-// DELETE /api/content/cancel/:uploadId (admin - cancel upload)
+// DELETE /api/content/cancel/:uploadId (admin only)
 router.delete('/cancel/:uploadId', auth, admin, cancelUpload);
 
-// DELETE /api/content/:id (admin)
+// DELETE /api/content/:id (admin only)
 router.delete('/:id', auth, admin, deleteVideo);
 
 module.exports = router;

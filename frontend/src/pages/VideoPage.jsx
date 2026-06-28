@@ -12,6 +12,7 @@ const VideoPage = () => {
   const videoRef = useRef(null);
   const progressInterval = useRef(null);
   const containerRef = useRef(null);
+  const controlsTimeout = useRef(null);
 
   const [video, setVideo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -30,7 +31,10 @@ const VideoPage = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [savedProgress, setSavedProgress] = useState(0);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
-  const controlsTimeout = useRef(null);
+
+  const token = localStorage.getItem('token');
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const videoSrc = `${apiBase}/api/content/${id}/stream?token=${token}`;
 
   useEffect(() => {
     fetchVideo();
@@ -44,7 +48,9 @@ const VideoPage = () => {
     try {
       const [videoRes, progressRes] = await Promise.all([
         videoAPI.getOne(id),
-        (isSubscribed || isAdmin) ? watchAPI.getProgress(id) : Promise.resolve({ data: { progress: null } }),
+        (isSubscribed || isAdmin)
+          ? watchAPI.getProgress(id)
+          : Promise.resolve({ data: { progress: null } }),
       ]);
       setVideo(videoRes.data.video);
       if (progressRes.data.progress?.watched_seconds > 10) {
@@ -58,7 +64,6 @@ const VideoPage = () => {
     }
   };
 
-  // Auto hide controls
   const resetControlsTimer = useCallback(() => {
     setShowControls(true);
     clearTimeout(controlsTimeout.current);
@@ -67,7 +72,6 @@ const VideoPage = () => {
     }
   }, [isPlaying]);
 
-  // Save progress every 10 seconds
   const startProgressTracking = useCallback(() => {
     clearInterval(progressInterval.current);
     progressInterval.current = setInterval(async () => {
@@ -121,10 +125,10 @@ const VideoPage = () => {
 
   const handleSeek = (e) => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || !v.duration || isNaN(v.duration)) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const pct = x / rect.width;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
     v.currentTime = pct * v.duration;
     setProgress(pct * 100);
   };
@@ -142,10 +146,7 @@ const VideoPage = () => {
       videoRef.current.muted = newMuted;
       setIsMuted(newMuted);
       if (newMuted) setVolume(0);
-      else {
-        setVolume(1);
-        videoRef.current.volume = 1;
-      }
+      else { setVolume(1); videoRef.current.volume = 1; }
     }
   };
 
@@ -168,11 +169,6 @@ const VideoPage = () => {
     handlePlay();
   };
 
-  const handlePlayFromStart = () => {
-    setShowResumePrompt(false);
-    handlePlay();
-  };
-
   const changePlaybackRate = (rate) => {
     setPlaybackRate(rate);
     if (videoRef.current) videoRef.current.playbackRate = rate;
@@ -181,7 +177,8 @@ const VideoPage = () => {
 
   const skip = (seconds) => {
     if (videoRef.current) {
-      videoRef.current.currentTime += seconds;
+      const v = videoRef.current;
+      v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + seconds));
     }
   };
 
@@ -194,7 +191,6 @@ const VideoPage = () => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e) => {
       if (e.target.tagName === 'INPUT') return;
@@ -202,8 +198,6 @@ const VideoPage = () => {
         case ' ': e.preventDefault(); togglePlay(); break;
         case 'ArrowRight': skip(10); break;
         case 'ArrowLeft': skip(-10); break;
-        case 'ArrowUp': e.preventDefault(); setVolume(v => Math.min(1, v + 0.1)); break;
-        case 'ArrowDown': e.preventDefault(); setVolume(v => Math.max(0, v - 0.1)); break;
         case 'f': toggleFullscreen(); break;
         case 'm': toggleMute(); break;
       }
@@ -213,7 +207,7 @@ const VideoPage = () => {
   }, [isPlaying, isMuted]);
 
   if (loading) return (
-    <div style={{ background: '#000', minHeight: '100vh' }}>
+    <div style={{ background: '#0a0a0f', minHeight: '100vh' }}>
       <Navbar />
       <div className="page-loader">
         <div className="spinner" />
@@ -225,7 +219,7 @@ const VideoPage = () => {
   if (error || !video) return (
     <div style={{ background: 'var(--bg-primary)', minHeight: '100vh' }}>
       <Navbar />
-      <div className="page-loader">
+      <div className="page-loader" style={{ flexDirection: 'column', gap: '16px' }}>
         <div style={{ fontSize: '48px' }}>🎬</div>
         <h2>Video not found</h2>
         <Link to="/dashboard" className="btn btn-primary" style={{ marginTop: '16px' }}>
@@ -242,7 +236,7 @@ const VideoPage = () => {
         <div style={{ fontSize: '64px' }}>🔒</div>
         <h2 style={{ fontSize: '24px', fontWeight: '700' }}>Subscription Required</h2>
         <p style={{ color: 'var(--text-secondary)', textAlign: 'center', maxWidth: '400px' }}>
-          Subscribe to watch <strong>{video.title}</strong> and thousands of other titles.
+          Subscribe to watch <strong>{video.title}</strong> and unlock all content.
         </p>
         <Link to="/subscribe" className="btn btn-primary" style={{ padding: '14px 40px', fontSize: '16px' }}>
           ⭐ Subscribe Now
@@ -254,14 +248,11 @@ const VideoPage = () => {
     </div>
   );
 
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-  const videoSrc = `${apiBase}/api/content/${id}/stream`;
-
   return (
-    <div style={{ background: '#000', minHeight: '100vh' }}>
+    <div style={{ background: '#0a0a0f', minHeight: '100vh' }}>
       <Navbar />
 
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 0 40px' }}>
+      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '24px 24px 60px' }}>
 
         {/* ── VIDEO PLAYER ── */}
         <div
@@ -271,10 +262,13 @@ const VideoPage = () => {
           style={{
             position: 'relative',
             background: '#000',
+            borderRadius: '16px',
+            overflow: 'hidden',
             aspectRatio: '16/9',
             width: '100%',
-            overflow: 'hidden',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.8)',
             cursor: showControls ? 'default' : 'none',
+            marginBottom: '24px',
           }}
         >
           {/* Video Element */}
@@ -293,15 +287,12 @@ const VideoPage = () => {
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
 
-          {/* Buffering Spinner */}
+          {/* Buffering */}
           {buffering && (
             <div style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'rgba(0,0,0,0.3)',
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.4)',
             }}>
               <div className="spinner" />
             </div>
@@ -311,25 +302,26 @@ const VideoPage = () => {
           {showResumePrompt && (
             <div style={{
               position: 'absolute',
-              bottom: '100px',
+              bottom: '90px',
               left: '50%',
               transform: 'translateX(-50%)',
-              background: 'rgba(0,0,0,0.9)',
-              border: '1px solid var(--border)',
-              borderRadius: '12px',
+              background: 'rgba(10,10,15,0.95)',
+              border: '1px solid rgba(229,9,20,0.3)',
+              borderRadius: '14px',
               padding: '20px 28px',
               textAlign: 'center',
               zIndex: 10,
-              minWidth: '300px',
+              minWidth: '280px',
+              backdropFilter: 'blur(10px)',
             }}>
-              <p style={{ marginBottom: '16px', fontSize: '14px' }}>
-                Resume from <strong>{formatTime(savedProgress)}</strong>?
+              <p style={{ marginBottom: '16px', fontSize: '14px', color: 'white' }}>
+                Resume from <strong style={{ color: 'var(--accent)' }}>{formatTime(savedProgress)}</strong>?
               </p>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                <button onClick={handleResume} className="btn btn-primary" style={{ padding: '8px 20px' }}>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                <button onClick={handleResume} className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '13px' }}>
                   ▶ Resume
                 </button>
-                <button onClick={handlePlayFromStart} className="btn btn-secondary" style={{ padding: '8px 20px' }}>
+                <button onClick={() => { setShowResumePrompt(false); handlePlay(); }} className="btn btn-secondary" style={{ padding: '8px 18px', fontSize: '13px' }}>
                   ↩ Start Over
                 </button>
               </div>
@@ -338,106 +330,69 @@ const VideoPage = () => {
 
           {/* Center Play Button */}
           {!isPlaying && !buffering && !showResumePrompt && (
-            <div
-              onClick={togglePlay}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
+            <div onClick={togglePlay} style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+            }}>
               <div style={{
-                width: '80px',
-                height: '80px',
-                borderRadius: '50%',
+                width: '72px', height: '72px', borderRadius: '50%',
                 background: 'rgba(229,9,20,0.9)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '32px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '28px',
+                boxShadow: '0 8px 32px rgba(229,9,20,0.5)',
                 backdropFilter: 'blur(10px)',
-                boxShadow: '0 8px 32px rgba(229,9,20,0.4)',
                 transition: 'transform 0.2s',
-              }}>
-                ▶
-              </div>
+              }}>▶</div>
             </div>
           )}
 
-          {/* Controls Overlay */}
+          {/* Controls */}
           <div style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            background: 'linear-gradient(transparent, rgba(0,0,0,0.9))',
-            padding: '40px 20px 16px',
+            position: 'absolute', bottom: 0, left: 0, right: 0,
+            background: 'linear-gradient(transparent, rgba(0,0,0,0.95))',
+            padding: '48px 16px 14px',
             transition: 'opacity 0.3s',
             opacity: showControls ? 1 : 0,
           }}>
             {/* Progress Bar */}
-            <div
-              onClick={handleSeek}
-              style={{
-                height: '4px',
-                background: 'rgba(255,255,255,0.2)',
-                borderRadius: '2px',
-                cursor: 'pointer',
-                marginBottom: '12px',
-                position: 'relative',
-              }}
-            >
-              {/* Buffered */}
+            <div onClick={handleSeek} style={{
+              height: '5px',
+              background: 'rgba(255,255,255,0.15)',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              marginBottom: '10px',
+              position: 'relative',
+            }}>
               <div style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                height: '100%',
+                position: 'absolute', left: 0, top: 0, height: '100%',
                 width: `${progress}%`,
                 background: 'var(--accent)',
-                borderRadius: '2px',
+                borderRadius: '3px',
                 transition: 'width 0.1s',
               }} />
-              {/* Thumb */}
               <div style={{
                 position: 'absolute',
-                top: '50%',
-                left: `${progress}%`,
+                top: '50%', left: `${progress}%`,
                 transform: 'translate(-50%, -50%)',
-                width: '14px',
-                height: '14px',
+                width: '13px', height: '13px',
                 borderRadius: '50%',
                 background: 'white',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
               }} />
             </div>
 
             {/* Controls Row */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '12px',
-            }}>
-              {/* Left Controls */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {/* Play/Pause */}
-                <ControlBtn onClick={togglePlay}>
-                  {isPlaying ? '⏸' : '▶'}
-                </ControlBtn>
-
-                {/* Skip Back */}
-                <ControlBtn onClick={() => skip(-10)} title="-10s">⏪</ControlBtn>
-
-                {/* Skip Forward */}
-                <ControlBtn onClick={() => skip(10)} title="+10s">⏩</ControlBtn>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              {/* Left */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ControlBtn onClick={togglePlay}>{isPlaying ? '⏸' : '▶'}</ControlBtn>
+                <ControlBtn onClick={() => skip(-10)}>⏪</ControlBtn>
+                <ControlBtn onClick={() => skip(10)}>⏩</ControlBtn>
 
                 {/* Volume */}
                 <div
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                   onMouseEnter={() => setShowVolumeSlider(true)}
                   onMouseLeave={() => setShowVolumeSlider(false)}
                 >
@@ -445,71 +400,47 @@ const VideoPage = () => {
                     {isMuted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}
                   </ControlBtn>
                   {showVolumeSlider && (
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={volume}
+                    <input type="range" min="0" max="1" step="0.05" value={volume}
                       onChange={handleVolumeChange}
-                      style={{
-                        width: '80px',
-                        accentColor: 'var(--accent)',
-                        cursor: 'pointer',
-                      }}
+                      style={{ width: '70px', accentColor: 'var(--accent)', cursor: 'pointer' }}
                     />
                   )}
                 </div>
 
-                {/* Time */}
-                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.8)', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap' }}>
                   {formatTime(currentTime)} / {formatTime(duration)}
                 </span>
               </div>
 
-              {/* Right Controls */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-                {/* Playback Speed */}
+              {/* Right */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
                 <div style={{ position: 'relative' }}>
                   <ControlBtn onClick={() => setShowSettings(!showSettings)}>
                     {playbackRate}x
                   </ControlBtn>
                   {showSettings && (
                     <div style={{
-                      position: 'absolute',
-                      bottom: '44px',
-                      right: 0,
-                      background: 'rgba(20,20,20,0.95)',
+                      position: 'absolute', bottom: '42px', right: 0,
+                      background: 'rgba(15,15,20,0.98)',
                       border: '1px solid var(--border)',
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      minWidth: '100px',
+                      borderRadius: '10px',
+                      overflow: 'hidden', minWidth: '90px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                     }}>
                       {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
-                        <button
-                          key={rate}
-                          onClick={() => changePlaybackRate(rate)}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            padding: '8px 16px',
-                            background: playbackRate === rate ? 'rgba(229,9,20,0.2)' : 'transparent',
-                            color: playbackRate === rate ? 'var(--accent)' : 'white',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            textAlign: 'left',
-                            fontFamily: 'Inter, sans-serif',
-                          }}
-                        >
+                        <button key={rate} onClick={() => changePlaybackRate(rate)} style={{
+                          display: 'block', width: '100%', padding: '8px 14px',
+                          background: playbackRate === rate ? 'rgba(229,9,20,0.2)' : 'transparent',
+                          color: playbackRate === rate ? 'var(--accent)' : 'white',
+                          border: 'none', cursor: 'pointer', fontSize: '13px',
+                          textAlign: 'left', fontFamily: 'Inter, sans-serif',
+                        }}>
                           {rate}x {playbackRate === rate ? '✓' : ''}
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-
-                {/* Fullscreen */}
                 <ControlBtn onClick={toggleFullscreen}>
                   {isFullscreen ? '⊡' : '⛶'}
                 </ControlBtn>
@@ -517,35 +448,29 @@ const VideoPage = () => {
             </div>
           </div>
 
-          {/* Keyboard Shortcuts hint */}
+          {/* Keyboard hint */}
           {showControls && (
             <div style={{
-              position: 'absolute',
-              top: '16px',
-              right: '16px',
-              background: 'rgba(0,0,0,0.6)',
-              borderRadius: '6px',
-              padding: '6px 12px',
-              fontSize: '11px',
-              color: 'rgba(255,255,255,0.5)',
+              position: 'absolute', top: '12px', right: '12px',
+              background: 'rgba(0,0,0,0.5)',
+              borderRadius: '6px', padding: '5px 10px',
+              fontSize: '10px', color: 'rgba(255,255,255,0.4)',
             }}>
-              Space: Play/Pause • ←→: Skip • F: Fullscreen • M: Mute
+              Space: Play • ←→: Skip • F: Fullscreen • M: Mute
             </div>
           )}
         </div>
 
         {/* ── VIDEO INFO ── */}
-        <div style={{ padding: '24px 24px 0', background: 'var(--bg-primary)' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '16px',
-            marginBottom: '24px',
-          }}>
+        <div style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: '16px',
+          padding: '24px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
             <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
                 <span className={`badge ${video.type === 'movie' ? 'badge-red' : 'badge-yellow'}`}>
                   {video.type === 'movie' ? '🎬 Movie' : '📺 Series'}
                 </span>
@@ -553,91 +478,61 @@ const VideoPage = () => {
                 {video.language && <span className="badge badge-gray">{video.language}</span>}
                 {video.release_year && <span className="badge badge-gray">{video.release_year}</span>}
               </div>
-              <h1 style={{
-                fontSize: 'clamp(20px, 3vw, 28px)',
-                fontWeight: '800',
-                marginBottom: '8px',
-              }}>
+
+              <h1 style={{ fontSize: 'clamp(18px, 3vw, 26px)', fontWeight: '800', marginBottom: '8px' }}>
                 {video.title}
               </h1>
+
               {video.description && (
-                <p style={{
-                  color: 'var(--text-secondary)',
-                  fontSize: '14px',
-                  lineHeight: '1.7',
-                  maxWidth: '700px',
-                }}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7', maxWidth: '600px' }}>
                   {video.description}
                 </p>
               )}
             </div>
 
-            {/* Progress indicator */}
+            {/* Progress */}
             {(isSubscribed || isAdmin) && progress > 0 && (
               <div style={{
-                background: 'var(--bg-card)',
+                background: 'var(--bg-secondary)',
                 border: '1px solid var(--border)',
                 borderRadius: '12px',
                 padding: '16px 20px',
-                minWidth: '160px',
+                minWidth: '140px',
                 textAlign: 'center',
               }}>
-                <div style={{
-                  fontSize: '28px',
-                  fontWeight: '800',
-                  color: 'var(--accent)',
-                  marginBottom: '4px',
-                }}>
+                <div style={{ fontSize: '26px', fontWeight: '800', color: 'var(--accent)', marginBottom: '4px' }}>
                   {Math.round(progress)}%
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  Watched
-                </div>
-                <div className="progress-bar" style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Watched</div>
+                <div className="progress-bar">
                   <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
                 </div>
               </div>
             )}
           </div>
 
-          {/* Back button */}
-          <button
-            onClick={() => navigate(-1)}
-            className="btn btn-secondary"
-            style={{ padding: '10px 20px', fontSize: '13px' }}
-          >
-            ← Go Back
-          </button>
+          <div style={{ marginTop: '20px' }}>
+            <button onClick={() => navigate(-1)} className="btn btn-secondary" style={{ padding: '10px 20px', fontSize: '13px' }}>
+              ← Go Back
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-// ─────────────────────────────────────────────
-// CONTROL BUTTON
-// ─────────────────────────────────────────────
 const ControlBtn = ({ onClick, children, title }) => (
-  <button
-    onClick={onClick}
-    title={title}
-    style={{
-      background: 'rgba(255,255,255,0.1)',
-      border: 'none',
-      borderRadius: '6px',
-      color: 'white',
-      width: '36px',
-      height: '36px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      cursor: 'pointer',
-      fontSize: '14px',
-      transition: 'background 0.2s',
-      fontFamily: 'Inter, sans-serif',
-    }}
-    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+  <button onClick={onClick} title={title} style={{
+    background: 'rgba(255,255,255,0.08)',
+    border: 'none', borderRadius: '6px', color: 'white',
+    width: '34px', height: '34px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', fontSize: '13px', transition: 'background 0.2s',
+    fontFamily: 'Inter, sans-serif',
+  }}
+    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
+    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
   >
     {children}
   </button>
