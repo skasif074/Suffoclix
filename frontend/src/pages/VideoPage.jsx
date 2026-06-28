@@ -32,8 +32,13 @@ const VideoPage = () => {
   const [savedProgress, setSavedProgress] = useState(0);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
 
+  //const token = localStorage.getItem('token');
+  //const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  //const videoSrc = `${apiBase}/api/content/${id}/stream?token=${token}`;
   const token = localStorage.getItem('token');
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  const apiBase =import.meta.env.VITE_API_URL || 'https://lumber-yummy-appease.ngrok-free.dev/app/suffoclix';
+
   const videoSrc = `${apiBase}/api/content/${id}/stream?token=${token}`;
 
   useEffect(() => {
