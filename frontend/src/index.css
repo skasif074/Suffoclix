@@ -317,7 +317,9 @@ select.input option {
   align-items: center;
   justify-content: space-between;
 }
-
+div::-webkit-scrollbar {
+  display: none;
+}
 .card:hover .play-btn {
   opacity: 1 !important;
 }
