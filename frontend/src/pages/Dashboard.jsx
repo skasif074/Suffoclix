@@ -22,6 +22,25 @@ const Dashboard = () => {
     else setSearchResults([]);
   }, [searchQuery]);
 
+
+  const ExpandableDescription = ({ description }) => {
+  const [expanded, setExpanded] = useState(false);
+  const short = description.length > 120;
+  return (
+    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', maxWidth: '600px', lineHeight: '1.5' }}>
+      {expanded || !short ? description : `${description.slice(0, 120)}...`}
+      {short && (
+        <span
+          onClick={(e) => { e.preventDefault(); setExpanded(!expanded); }}
+          style={{ color: 'var(--accent)', cursor: 'pointer', marginLeft: '4px', fontWeight: '600' }}
+        >
+          {expanded ? ' less' : ' more'}
+        </span>
+      )}
+    </p>
+  );
+};
+
   const fetchData = async () => {
     try {
       const [playlistRes, continueRes] = await Promise.all([
@@ -305,11 +324,7 @@ const PlaylistRow = ({ title, playlistId, description, videos, isSubscribed, isA
                 {videos.length} {videos.length === 1 ? 'video' : 'videos'}
               </span>
             </div>
-            {description && (
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                {description}
-              </p>
-            )}
+           {description && <ExpandableDescription description={description} />}
           </div>
         </div>
 
