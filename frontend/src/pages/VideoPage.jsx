@@ -155,16 +155,20 @@ const VideoPage = () => {
     }
   };
 
-  const toggleFullscreen = () => {
-    const el = containerRef.current;
-    if (!document.fullscreenElement) {
-      el?.requestFullscreen();
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen();
-      setIsFullscreen(false);
-    }
-  };
+const toggleFullscreen = () => {
+  const el = containerRef.current;
+  const vid = videoRef.current;
+  if (!document.fullscreenElement) {
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    else if (vid.webkitEnterFullscreen) vid.webkitEnterFullscreen();
+    setIsFullscreen(true);
+  } else {
+    if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    setIsFullscreen(false);
+  }
+};
 
   const handleResume = () => {
     if (videoRef.current && savedProgress) {
