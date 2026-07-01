@@ -44,19 +44,19 @@ export const videoAPI = {
   getOne: (id) => API.get(`/api/content/${id}`),
   search: (query) => API.get('/api/content', { params: { search: query } }),
   delete: (id) => API.delete(`/api/content/${id}`),
-
-  // Chunked upload
+  update: (id, data) => API.patch(`/api/content/${id}`, data),
+  updateThumbnail: (id, formData) => API.patch(`/api/content/${id}/thumbnail`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
   uploadChunk: (formData, onProgress) =>
     API.post('/api/content/chunk', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: onProgress,
     }),
-
   mergeChunks: (formData) =>
     API.post('/api/content/merge', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
-
   cancelUpload: (uploadId) => API.delete(`/api/content/cancel/${uploadId}`),
 };
 
@@ -95,7 +95,6 @@ export const adminAPI = {
   updateSubscriptionPrice: (data) => API.put('/api/admin/subscription-price', data),
   googleLogin: (data) => API.post('/api/auth/google', data),
 };
-
 
 export const paymentAPI = {
   getPlans: () => API.get('/api/payment/plans'),
