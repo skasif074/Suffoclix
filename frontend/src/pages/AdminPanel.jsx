@@ -298,7 +298,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
         totalChunks,
       });
 
-      const CONCURRENT_UPLOADS = 1;
+      const CONCURRENT_UPLOADS = 4;
 
       for (let batch = 0; batch < totalChunks; batch += CONCURRENT_UPLOADS) {
         // Check for cancellation before starting the next batch
