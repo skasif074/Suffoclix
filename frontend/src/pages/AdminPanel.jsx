@@ -310,6 +310,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
         }
 
         const promises = [];
+        console.log("Starting batch", batch);
 
         for (
           let i = batch;
@@ -327,6 +328,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
           formData.append('fileName', videoFile.name);
           formData.append('uploadId', uploadId);
 
+          console.log("Uploading chunk", i);
           promises.push(
             videoAPI.uploadChunk(formData).then(() => {
               // Update state accurately as chunks complete
@@ -348,7 +350,9 @@ const UploadTab = ({ showToast, onSuccess }) => {
           );
         }
 
+        console.log("Waiting for", promises.length, "uploads");
         await Promise.all(promises);
+        console.log("Batch finished");
       }
 
       // Merge chunks
