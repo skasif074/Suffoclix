@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { adminAPI, videoAPI, playlistAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 
-const CHUNK_SIZE = 20 * 1024 * 1024; // 5MB per chunk
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
 
 const AdminPanel = () => {
   const { user } = useAuth();
