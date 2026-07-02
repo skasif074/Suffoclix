@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { adminAPI, videoAPI, playlistAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB per chunk
+const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB per chunk
 
 const AdminPanel = () => {
   const { user } = useAuth();
@@ -298,8 +298,10 @@ const UploadTab = ({ showToast, onSuccess }) => {
         totalChunks,
       });
 
-      // Upload chunks
-      for (let i = 0; i < totalChunks; i++) {
+      const CONCURRENT_UPLOADS = 4;
+
+      for (let batch = 0; batch < totalChunks; batch += CONCURRENT_UPLOADS) {
+        // Check for cancellation before starting the next batch
         if (cancelRef.current) {
           await videoAPI.cancelUpload(uploadId);
           showToast('Upload cancelled.', 'error');
@@ -307,36 +309,46 @@ const UploadTab = ({ showToast, onSuccess }) => {
           return;
         }
 
-        const start = i * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, videoFile.size);
-        const chunk = videoFile.slice(start, end);
+        const promises = [];
 
-        const formData = new FormData();
-        formData.append('chunk', chunk);
-        formData.append('chunkIndex', i);
-        formData.append('totalChunks', totalChunks);
-        formData.append('fileName', videoFile.name);
-        formData.append('uploadId', uploadId);
+        for (
+          let i = batch;
+          i < Math.min(batch + CONCURRENT_UPLOADS, totalChunks);
+          i++
+        ) {
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, videoFile.size);
+          const chunk = videoFile.slice(start, end);
 
-        await videoAPI.uploadChunk(formData, (progressEvent) => {
-          const chunkLoaded = progressEvent.loaded;
-          const elapsed = (Date.now() - startTime) / 1000;
-          const totalUploaded = uploadedBytes + chunkLoaded;
-          const speed = totalUploaded / elapsed;
-          const remaining = (videoFile.size - totalUploaded) / speed;
-          const overallPercent = Math.round((totalUploaded / videoFile.size) * 100);
+          const formData = new FormData();
+          formData.append('chunk', chunk);
+          formData.append('chunkIndex', i);
+          formData.append('totalChunks', totalChunks);
+          formData.append('fileName', videoFile.name);
+          formData.append('uploadId', uploadId);
 
-          setUploadState({
-            phase: 'uploading',
-            percent: overallPercent,
-            speed: formatBytes(speed),
-            timeLeft: formatTime(remaining),
-            currentChunk: i + 1,
-            totalChunks,
-          });
-        });
+          promises.push(
+            videoAPI.uploadChunk(formData).then(() => {
+              // Update state accurately as chunks complete
+              uploadedBytes += (end - start);
+              const elapsed = (Date.now() - startTime) / 1000;
+              const speed = uploadedBytes / Math.max(elapsed, 0.1);
+              const remaining = Math.max(0, (videoFile.size - uploadedBytes) / speed);
+              const overallPercent = Math.round((uploadedBytes / videoFile.size) * 100);
 
-        uploadedBytes += (end - start);
+              setUploadState({
+                phase: 'uploading',
+                percent: overallPercent,
+                speed: formatBytes(speed),
+                timeLeft: formatTime(remaining),
+                currentChunk: Math.min(batch + CONCURRENT_UPLOADS, totalChunks),
+                totalChunks,
+              });
+            })
+          );
+        }
+
+        await Promise.all(promises);
       }
 
       // Merge chunks
