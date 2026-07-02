@@ -847,18 +847,11 @@ const PlaylistsTab = ({ playlists, videos, showToast, onRefresh }) => {
 };
 
 // ─────────────────────────────────────────────
-// VIDEOS TAB
+// VIDEOS TAB (Simple Version)
 // ─────────────────────────────────────────────
 const VideosTab = ({ videos, showToast, onRefresh }) => {
   const [deleting, setDeleting] = useState(null);
   const [search, setSearch] = useState('');
-  const [editVideo, setEditVideo] = useState(null);
-  const [editForm, setEditForm] = useState({});
-  const [thumbFile, setThumbFile] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const thumbRef = useRef(null);
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
   const filtered = videos.filter(v =>
     v.title.toLowerCase().includes(search.toLowerCase())
   );
@@ -877,142 +870,8 @@ const VideosTab = ({ videos, showToast, onRefresh }) => {
     }
   };
 
-  const openEdit = (video) => {
-    setEditVideo(video);
-    setEditForm({
-      title: video.title,
-      description: video.description || '',
-      type: video.type,
-      genre: video.genre || '',
-      language: video.language || '',
-      release_year: video.release_year || '',
-    });
-    setThumbFile(null);
-  };
-
-  const handleSave = async () => {
-    if (!editForm.title) return showToast('Title required.', 'error');
-    setSaving(true);
-    try {
-      await videoAPI.update(editVideo.id, editForm);
-      if (thumbFile) {
-        const fd = new FormData();
-        fd.append('thumbnail', thumbFile);
-        await videoAPI.updateThumbnail(editVideo.id, fd);
-      }
-      showToast('Video updated!');
-      setEditVideo(null);
-      onRefresh();
-    } catch (err) {
-      showToast('Failed to update video.', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div>
-      {/* Edit Modal */}
-      {editVideo && (
-        <div className="modal-overlay" onClick={() => setEditVideo(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">
-              ✏️ Edit Video
-              <button onClick={() => setEditVideo(null)} style={{ background: 'none', border: 'none', color: 'white', fontSize: '20px', cursor: 'pointer' }}>✕</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {/* Thumbnail Preview */}
-              <div style={{ textAlign: 'center' }}>
-                <div style={{
-                  width: '100%', height: '160px', borderRadius: '10px',
-                  background: thumbFile
-                    ? `url(${URL.createObjectURL(thumbFile)}) center/cover`
-                    : editVideo.thumbnail_path
-                      ? `url(${apiBase}/${editVideo.thumbnail_path}) center/cover`
-                      : 'var(--bg-secondary)',
-                  marginBottom: '10px',
-                  border: '2px dashed var(--border)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '32px',
-                }}>
-                  {!thumbFile && !editVideo.thumbnail_path && '🖼️'}
-                </div>
-                <button
-                  onClick={() => thumbRef.current?.click()}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '12px', padding: '6px 14px' }}
-                >
-                  📷 Change Thumbnail
-                </button>
-                <input ref={thumbRef} type="file" accept="image/*" style={{ display: 'none' }}
-                  onChange={e => setThumbFile(e.target.files[0])} />
-                {thumbFile && (
-                  <div style={{ fontSize: '11px', color: 'var(--success)', marginTop: '4px' }}>
-                    ✅ {thumbFile.name}
-                  </div>
-                )}
-              </div>
-              <div>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Title *</label>
-                <input className="input" value={editForm.title}
-                  onChange={e => setEditForm({ ...editForm, title: e.target.value })} />
-              </div>
-              <div>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Description</label>
-                <textarea className="input" rows={3} style={{ resize: 'vertical' }}
-                  value={editForm.description}
-                  onChange={e => setEditForm({ ...editForm, description: e.target.value })} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Type</label>
-                  <select className="input" value={editForm.type}
-                    onChange={e => setEditForm({ ...editForm, type: e.target.value })}>
-                    <option value="movie">🎬 Movie</option>
-                    <option value="series">📺 Series</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Genre</label>
-                  <select className="input" value={editForm.genre}
-                    onChange={e => setEditForm({ ...editForm, genre: e.target.value })}>
-                    <option value="">Select Genre</option>
-                    {['Action','Comedy','Drama','Horror','Romance','Thriller','Sci-Fi','Animation','Documentary','Crime'].map(g => (
-                      <option key={g} value={g}>{g}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Language</label>
-                  <select className="input" value={editForm.language}
-                    onChange={e => setEditForm({ ...editForm, language: e.target.value })}>
-                    <option value="">Select Language</option>
-                    {['Hindi','English','Tamil','Telugu','Malayalam','Kannada','Bengali','Marathi'].map(l => (
-                      <option key={l} value={l}>{l}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Release Year</label>
-                  <input className="input" type="number" min="1900" max="2099"
-                    value={editForm.release_year}
-                    onChange={e => setEditForm({ ...editForm, release_year: e.target.value })} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-                <button onClick={handleSave} disabled={saving} className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
-                  {saving ? '⏳ Saving...' : '💾 Save Changes'}
-                </button>
-                <button onClick={() => setEditVideo(null)} className="btn btn-secondary">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
         <h2 style={{ fontSize: '20px', fontWeight: '700' }}>🎥 Videos ({videos.length})</h2>
         <input className="input" style={{ width: '240px' }} placeholder="🔍 Search videos..."
@@ -1036,13 +895,11 @@ const VideosTab = ({ videos, showToast, onRefresh }) => {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
                 <div style={{
-                  width: '60px', height: '40px', borderRadius: '6px', flexShrink: 0,
-                  background: video.thumbnail_path
-                    ? `url(${apiBase}/${video.thumbnail_path}) center/cover`
-                    : 'var(--bg-secondary)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px',
+                  width: '44px', height: '44px', borderRadius: '8px',
+                  background: 'var(--bg-secondary)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0,
                 }}>
-                  {!video.thumbnail_path && (video.type === 'movie' ? '🎬' : '📺')}
+                  {video.type === 'movie' ? '🎬' : '📺'}
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: '14px', fontWeight: '700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1060,13 +917,9 @@ const VideosTab = ({ videos, showToast, onRefresh }) => {
                 <span className={`badge ${video.type === 'movie' ? 'badge-red' : 'badge-yellow'}`}>
                   {video.type}
                 </span>
-                <button onClick={() => openEdit(video)} className="btn btn-secondary"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}>
-                  ✏️ Edit
-                </button>
                 <button onClick={() => handleDelete(video.id)} disabled={deleting === video.id}
                   className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>
-                  {deleting === video.id ? '...' : '🗑'}
+                  {deleting === video.id ? '...' : '🗑 Delete'}
                 </button>
               </div>
             </div>
