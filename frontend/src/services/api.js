@@ -44,10 +44,6 @@ export const videoAPI = {
   getOne: (id) => API.get(`/api/content/${id}`),
   search: (query) => API.get('/api/content', { params: { search: query } }),
   delete: (id) => API.delete(`/api/content/${id}`),
-  update: (id, data) => API.patch(`/api/content/${id}`, data),
-  updateThumbnail: (id, formData) => API.patch(`/api/content/${id}/thumbnail`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
   uploadChunk: (formData, onProgress) =>
     API.post('/api/content/chunk', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
