@@ -4,6 +4,8 @@ import { adminAPI, videoAPI, playlistAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 
 const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB per chunk
+const CONCURRENT_UPLOADS = 4;
+const PROGRESS_THROTTLE_MS = 150; // ~6-7 UI updates/sec — smooth but not wasteful
 
 const AdminPanel = () => {
   const { user } = useAuth();
@@ -254,6 +256,8 @@ const UploadTab = ({ showToast, onSuccess }) => {
     percent: 0,
     speed: '',
     timeLeft: '',
+    uploadedBytes: 0,
+    totalBytes: 0,
     currentChunk: 0,
     totalChunks: 0,
   });
@@ -262,12 +266,13 @@ const UploadTab = ({ showToast, onSuccess }) => {
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const formatBytes = (bytes) => {
-    if (bytes < 1024) return `${bytes} B/s`;
+    if (!bytes || bytes < 1024) return `${Math.round(bytes || 0)} B/s`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB/s`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB/s`;
   };
 
   const formatTime = (secs) => {
+    if (!isFinite(secs) || secs <= 0) return 'Calculating...';
     if (secs < 60) return `${Math.round(secs)}s`;
     if (secs < 3600) return `${Math.round(secs / 60)}m ${Math.round(secs % 60)}s`;
     return `${Math.round(secs / 3600)}h ${Math.round((secs % 3600) / 60)}m`;
@@ -285,20 +290,64 @@ const UploadTab = ({ showToast, onSuccess }) => {
     const uploadId = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const totalChunks = Math.ceil(videoFile.size / CHUNK_SIZE);
 
-    try {
-      let uploadedBytes = 0;
-      const startTime = Date.now();
+    // Bytes uploaded per chunk index — updated continuously by axios's
+    // onUploadProgress, not just when a chunk finishes. This is what
+    // removes the "stuckey" stepwise jumps.
+    const chunkLoaded = new Array(totalChunks).fill(0);
+    let completedChunks = 0;
 
+    // Speed smoothing (exponential moving average) so it doesn't spike/dip
+    // every time a batch of 4 chunks lands at once.
+    let smoothedSpeed = 0;
+    let lastSampleTime = Date.now();
+    let lastSampleBytes = 0;
+    let lastRenderTime = 0;
+
+    const updateProgress = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastRenderTime < PROGRESS_THROTTLE_MS) return;
+      lastRenderTime = now;
+
+      const uploadedBytes = chunkLoaded.reduce((sum, b) => sum + b, 0);
+      const elapsed = (now - lastSampleTime) / 1000;
+
+      if (elapsed > 0.05) {
+        const instantSpeed = (uploadedBytes - lastSampleBytes) / elapsed;
+        smoothedSpeed = smoothedSpeed === 0
+          ? instantSpeed
+          : smoothedSpeed * 0.7 + instantSpeed * 0.3;
+        lastSampleBytes = uploadedBytes;
+        lastSampleTime = now;
+      }
+
+      const remaining = smoothedSpeed > 0
+        ? (videoFile.size - uploadedBytes) / smoothedSpeed
+        : Infinity;
+      const overallPercent = Math.min(100, (uploadedBytes / videoFile.size) * 100);
+
+      setUploadState({
+        phase: 'uploading',
+        percent: Math.round(overallPercent * 10) / 10, // one decimal = visibly smoother
+        speed: formatBytes(smoothedSpeed),
+        timeLeft: formatTime(remaining),
+        uploadedBytes,
+        totalBytes: videoFile.size,
+        currentChunk: completedChunks,
+        totalChunks,
+      });
+    };
+
+    try {
       setUploadState({
         phase: 'uploading',
         percent: 0,
         speed: '',
         timeLeft: 'Calculating...',
+        uploadedBytes: 0,
+        totalBytes: videoFile.size,
         currentChunk: 0,
         totalChunks,
       });
-
-      const CONCURRENT_UPLOADS = 4;
 
       for (let batch = 0; batch < totalChunks; batch += CONCURRENT_UPLOADS) {
         // Check for cancellation before starting the next batch
@@ -310,7 +359,6 @@ const UploadTab = ({ showToast, onSuccess }) => {
         }
 
         const promises = [];
-        console.log("Starting batch", batch);
 
         for (
           let i = batch;
@@ -320,6 +368,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
           const start = i * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, videoFile.size);
           const chunk = videoFile.slice(start, end);
+          const chunkSize = end - start;
 
           const formData = new FormData();
           formData.append('chunk', chunk);
@@ -328,32 +377,26 @@ const UploadTab = ({ showToast, onSuccess }) => {
           formData.append('fileName', videoFile.name);
           formData.append('uploadId', uploadId);
 
-          console.log("Uploading chunk", i);
           promises.push(
-            videoAPI.uploadChunk(formData).then(() => {
-              // Update state accurately as chunks complete
-              uploadedBytes += (end - start);
-              const elapsed = (Date.now() - startTime) / 1000;
-              const speed = uploadedBytes / Math.max(elapsed, 0.1);
-              const remaining = Math.max(0, (videoFile.size - uploadedBytes) / speed);
-              const overallPercent = Math.round((uploadedBytes / videoFile.size) * 100);
-
-              setUploadState({
-                phase: 'uploading',
-                percent: overallPercent,
-                speed: formatBytes(speed),
-                timeLeft: formatTime(remaining),
-                currentChunk: Math.min(batch + CONCURRENT_UPLOADS, totalChunks),
-                totalChunks,
-              });
+            videoAPI.uploadChunk(formData, {
+              // Requires videoAPI.uploadChunk to forward this config to axios —
+              // see note below the component.
+              onUploadProgress: (progressEvent) => {
+                chunkLoaded[i] = progressEvent.loaded;
+                updateProgress();
+              },
+            }).then(() => {
+              chunkLoaded[i] = chunkSize;
+              completedChunks += 1;
+              updateProgress(true); // force a render on every chunk completion
             })
           );
         }
 
-        console.log("Waiting for", promises.length, "uploads");
         await Promise.all(promises);
-        console.log("Batch finished");
       }
+
+      updateProgress(true);
 
       // Merge chunks
       setUploadState(prev => ({ ...prev, phase: 'merging', percent: 100 }));
@@ -574,7 +617,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
               <div className="progress-bar-fill" style={{
                 width: `${uploadState.percent}%`,
                 background: uploadState.phase === 'done' ? 'var(--success)' : 'var(--gradient)',
-                transition: 'width 0.3s ease',
+                transition: 'width 0.2s linear',
               }} />
             </div>
 
@@ -602,7 +645,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
                 <div>
                   <span style={{ color: 'var(--text-muted)' }}>Uploaded: </span>
                   <span style={{ fontWeight: '600' }}>
-                    {((uploadState.percent / 100) * videoFile?.size / (1024 * 1024)).toFixed(1)} MB / {(videoFile?.size / (1024 * 1024)).toFixed(1)} MB
+                    {(uploadState.uploadedBytes / (1024 * 1024)).toFixed(1)} MB / {(uploadState.totalBytes / (1024 * 1024)).toFixed(1)} MB
                   </span>
                 </div>
               </div>
