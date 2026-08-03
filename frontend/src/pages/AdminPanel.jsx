@@ -4,8 +4,6 @@ import { adminAPI, videoAPI, playlistAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 
 const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB per chunk
-const CONCURRENT_UPLOADS = 4;
-const PROGRESS_THROTTLE_MS = 150; // ~6-7 UI updates/sec — smooth but not wasteful
 
 const AdminPanel = () => {
   const { user } = useAuth();
@@ -48,6 +46,8 @@ const AdminPanel = () => {
   const tabs = [
     { key: 'dashboard', label: '📊 Dashboard' },
     { key: 'upload', label: '🎬 Upload' },
+    { key: 'bulkupload', label: '📦 Bulk Upload' },
+    { key: 'editvideo', label: '✏️ Edit Metadata' },
     { key: 'playlists', label: '📚 Playlists' },
     { key: 'videos', label: '🎥 Videos' },
     { key: 'users', label: '👥 Users' },
@@ -125,6 +125,12 @@ const AdminPanel = () => {
         )}
         {activeTab === 'upload' && (
           <UploadTab showToast={showToast} onSuccess={() => { fetchAll(); setActiveTab('videos'); }} />
+        )}
+        {activeTab === 'bulkupload' && (
+          <BulkUploadTab showToast={showToast} onSuccess={() => { fetchAll(); setActiveTab('videos'); }} />
+        )}
+        {activeTab === 'editvideo' && (
+          <EditVideoTab videos={videos} showToast={showToast} onRefresh={fetchAll} />
         )}
         {activeTab === 'playlists' && (
           <PlaylistsTab
@@ -256,8 +262,6 @@ const UploadTab = ({ showToast, onSuccess }) => {
     percent: 0,
     speed: '',
     timeLeft: '',
-    uploadedBytes: 0,
-    totalBytes: 0,
     currentChunk: 0,
     totalChunks: 0,
   });
@@ -266,13 +270,12 @@ const UploadTab = ({ showToast, onSuccess }) => {
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const formatBytes = (bytes) => {
-    if (!bytes || bytes < 1024) return `${Math.round(bytes || 0)} B/s`;
+    if (bytes < 1024) return `${bytes} B/s`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB/s`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB/s`;
   };
 
   const formatTime = (secs) => {
-    if (!isFinite(secs) || secs <= 0) return 'Calculating...';
     if (secs < 60) return `${Math.round(secs)}s`;
     if (secs < 3600) return `${Math.round(secs / 60)}m ${Math.round(secs % 60)}s`;
     return `${Math.round(secs / 3600)}h ${Math.round((secs % 3600) / 60)}m`;
@@ -290,64 +293,20 @@ const UploadTab = ({ showToast, onSuccess }) => {
     const uploadId = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const totalChunks = Math.ceil(videoFile.size / CHUNK_SIZE);
 
-    // Bytes uploaded per chunk index — updated continuously by axios's
-    // onUploadProgress, not just when a chunk finishes. This is what
-    // removes the "stuckey" stepwise jumps.
-    const chunkLoaded = new Array(totalChunks).fill(0);
-    let completedChunks = 0;
-
-    // Speed smoothing (exponential moving average) so it doesn't spike/dip
-    // every time a batch of 4 chunks lands at once.
-    let smoothedSpeed = 0;
-    let lastSampleTime = Date.now();
-    let lastSampleBytes = 0;
-    let lastRenderTime = 0;
-
-    const updateProgress = (force = false) => {
-      const now = Date.now();
-      if (!force && now - lastRenderTime < PROGRESS_THROTTLE_MS) return;
-      lastRenderTime = now;
-
-      const uploadedBytes = chunkLoaded.reduce((sum, b) => sum + b, 0);
-      const elapsed = (now - lastSampleTime) / 1000;
-
-      if (elapsed > 0.05) {
-        const instantSpeed = (uploadedBytes - lastSampleBytes) / elapsed;
-        smoothedSpeed = smoothedSpeed === 0
-          ? instantSpeed
-          : smoothedSpeed * 0.7 + instantSpeed * 0.3;
-        lastSampleBytes = uploadedBytes;
-        lastSampleTime = now;
-      }
-
-      const remaining = smoothedSpeed > 0
-        ? (videoFile.size - uploadedBytes) / smoothedSpeed
-        : Infinity;
-      const overallPercent = Math.min(100, (uploadedBytes / videoFile.size) * 100);
-
-      setUploadState({
-        phase: 'uploading',
-        percent: Math.round(overallPercent * 10) / 10, // one decimal = visibly smoother
-        speed: formatBytes(smoothedSpeed),
-        timeLeft: formatTime(remaining),
-        uploadedBytes,
-        totalBytes: videoFile.size,
-        currentChunk: completedChunks,
-        totalChunks,
-      });
-    };
-
     try {
+      let uploadedBytes = 0;
+      const startTime = Date.now();
+
       setUploadState({
         phase: 'uploading',
         percent: 0,
         speed: '',
         timeLeft: 'Calculating...',
-        uploadedBytes: 0,
-        totalBytes: videoFile.size,
         currentChunk: 0,
         totalChunks,
       });
+
+      const CONCURRENT_UPLOADS = 4;
 
       for (let batch = 0; batch < totalChunks; batch += CONCURRENT_UPLOADS) {
         // Check for cancellation before starting the next batch
@@ -359,6 +318,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
         }
 
         const promises = [];
+        console.log("Starting batch", batch);
 
         for (
           let i = batch;
@@ -368,7 +328,6 @@ const UploadTab = ({ showToast, onSuccess }) => {
           const start = i * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, videoFile.size);
           const chunk = videoFile.slice(start, end);
-          const chunkSize = end - start;
 
           const formData = new FormData();
           formData.append('chunk', chunk);
@@ -377,26 +336,32 @@ const UploadTab = ({ showToast, onSuccess }) => {
           formData.append('fileName', videoFile.name);
           formData.append('uploadId', uploadId);
 
+          console.log("Uploading chunk", i);
           promises.push(
-            videoAPI.uploadChunk(formData, {
-              // Requires videoAPI.uploadChunk to forward this config to axios —
-              // see note below the component.
-              onUploadProgress: (progressEvent) => {
-                chunkLoaded[i] = progressEvent.loaded;
-                updateProgress();
-              },
-            }).then(() => {
-              chunkLoaded[i] = chunkSize;
-              completedChunks += 1;
-              updateProgress(true); // force a render on every chunk completion
+            videoAPI.uploadChunk(formData).then(() => {
+              // Update state accurately as chunks complete
+              uploadedBytes += (end - start);
+              const elapsed = (Date.now() - startTime) / 1000;
+              const speed = uploadedBytes / Math.max(elapsed, 0.1);
+              const remaining = Math.max(0, (videoFile.size - uploadedBytes) / speed);
+              const overallPercent = Math.round((uploadedBytes / videoFile.size) * 100);
+
+              setUploadState({
+                phase: 'uploading',
+                percent: overallPercent,
+                speed: formatBytes(speed),
+                timeLeft: formatTime(remaining),
+                currentChunk: Math.min(batch + CONCURRENT_UPLOADS, totalChunks),
+                totalChunks,
+              });
             })
           );
         }
 
+        console.log("Waiting for", promises.length, "uploads");
         await Promise.all(promises);
+        console.log("Batch finished");
       }
-
-      updateProgress(true);
 
       // Merge chunks
       setUploadState(prev => ({ ...prev, phase: 'merging', percent: 100 }));
@@ -617,7 +582,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
               <div className="progress-bar-fill" style={{
                 width: `${uploadState.percent}%`,
                 background: uploadState.phase === 'done' ? 'var(--success)' : 'var(--gradient)',
-                transition: 'width 0.2s linear',
+                transition: 'width 0.3s ease',
               }} />
             </div>
 
@@ -645,7 +610,7 @@ const UploadTab = ({ showToast, onSuccess }) => {
                 <div>
                   <span style={{ color: 'var(--text-muted)' }}>Uploaded: </span>
                   <span style={{ fontWeight: '600' }}>
-                    {(uploadState.uploadedBytes / (1024 * 1024)).toFixed(1)} MB / {(uploadState.totalBytes / (1024 * 1024)).toFixed(1)} MB
+                    {((uploadState.percent / 100) * videoFile?.size / (1024 * 1024)).toFixed(1)} MB / {(videoFile?.size / (1024 * 1024)).toFixed(1)} MB
                   </span>
                 </div>
               </div>
@@ -685,6 +650,427 @@ const UploadTab = ({ showToast, onSuccess }) => {
 };
 
 // ─────────────────────────────────────────────
+// BULK UPLOAD TAB
+// ─────────────────────────────────────────────
+const BulkUploadTab = ({ showToast, onSuccess }) => {
+  const [files, setFiles] = useState([]); // [{ file, status, percent, error }]
+  const [type, setType] = useState('movie');
+  const [uploading, setUploading] = useState(false);
+
+  const handleFilesSelected = (e) => {
+    const selected = Array.from(e.target.files).map(file => ({
+      file,
+      status: 'pending', // pending | uploading | merging | done | error
+      percent: 0,
+    }));
+    setFiles(selected);
+  };
+
+  const updateFileState = (index, updates) => {
+    setFiles(prev => prev.map((f, i) => i === index ? { ...f, ...updates } : f));
+  };
+
+  const uploadOneFile = async (item, index) => {
+    const { file } = item;
+    const uploadId = `bulk_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    updateFileState(index, { status: 'uploading', percent: 0 });
+
+    try {
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('chunkIndex', i);
+        formData.append('totalChunks', totalChunks);
+        formData.append('fileName', file.name);
+        formData.append('uploadId', uploadId);
+
+        await videoAPI.uploadChunk(formData);
+        updateFileState(index, { percent: Math.round(((i + 1) / totalChunks) * 100) });
+      }
+
+      updateFileState(index, { status: 'merging' });
+
+      const mergeForm = new FormData();
+      mergeForm.append('uploadId', uploadId);
+      mergeForm.append('fileName', file.name);
+      mergeForm.append('totalChunks', totalChunks);
+      mergeForm.append('type', type);
+
+      await videoAPI.mergeChunks(mergeForm);
+
+      updateFileState(index, { status: 'done', percent: 100 });
+    } catch (err) {
+      console.error('Bulk upload error:', err);
+      updateFileState(index, { status: 'error', error: err.response?.data?.message || 'Upload failed.' });
+    }
+  };
+
+  const handleBulkUpload = async () => {
+    if (files.length === 0) return showToast('Select videos to upload.', 'error');
+    setUploading(true);
+
+    for (let i = 0; i < files.length; i++) {
+      await uploadOneFile(files[i], i);
+    }
+
+    setUploading(false);
+    const successCount = files.filter(f => f.status === 'done').length;
+    showToast(`Bulk upload finished: ${successCount}/${files.length} succeeded.`);
+    onSuccess();
+  };
+
+  return (
+    <div style={{ maxWidth: '700px' }}>
+      <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px' }}>
+        📦 Bulk Upload
+      </h2>
+      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>
+        Select multiple videos at once. Titles are auto-generated from filenames and thumbnails are auto-captured from each video.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+            Content Type
+          </label>
+          <select className="input" value={type} onChange={e => setType(e.target.value)}>
+            <option value="movie">🎬 Movie</option>
+            <option value="series">📺 Series / Episode</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+            Video Files
+          </label>
+          <input
+            type="file"
+            accept="video/*"
+            multiple
+            onChange={handleFilesSelected}
+            disabled={uploading}
+            className="input"
+          />
+        </div>
+
+        {files.length > 0 && (
+          <div style={{
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            background: 'var(--bg-card)',
+            maxHeight: '360px',
+            overflowY: 'auto',
+          }}>
+            {files.map((f, i) => (
+              <div key={i} style={{
+                padding: '10px 14px',
+                borderBottom: '1px solid var(--border)',
+                fontSize: '13px',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {f.file.name}
+                  </span>
+                  <span style={{
+                    fontSize: '11px',
+                    color:
+                      f.status === 'done' ? 'var(--success)' :
+                      f.status === 'error' ? 'var(--danger, #e50914)' :
+                      'var(--text-muted)',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {f.status === 'pending' && 'Waiting...'}
+                    {f.status === 'uploading' && `Uploading ${f.percent}%`}
+                    {f.status === 'merging' && 'Processing...'}
+                    {f.status === 'done' && '✅ Done'}
+                    {f.status === 'error' && `❌ ${f.error || 'Failed'}`}
+                  </span>
+                </div>
+                {(f.status === 'uploading' || f.status === 'merging') && (
+                  <div style={{ height: '4px', background: 'var(--border)', borderRadius: '2px', marginTop: '6px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${f.status === 'merging' ? 100 : f.percent}%`,
+                      background: 'var(--gradient)',
+                      transition: 'width 0.2s',
+                    }} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button
+          onClick={handleBulkUpload}
+          disabled={uploading || files.length === 0}
+          className="btn btn-primary"
+          style={{ padding: '12px', opacity: uploading || files.length === 0 ? 0.6 : 1 }}
+        >
+          {uploading ? 'Uploading...' : `Upload ${files.length || ''} Video${files.length === 1 ? '' : 's'}`}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// EDIT VIDEO METADATA TAB
+// ─────────────────────────────────────────────
+const EditVideoTab = ({ videos, showToast, onRefresh }) => {
+  const [filter, setFilter] = useState('all'); // all | movie | series
+  const [search, setSearch] = useState('');
+  const [editingVideo, setEditingVideo] = useState(null);
+  const [form, setForm] = useState({
+    title: '', description: '', type: 'movie',
+    genre: '', language: '', release_year: '',
+  });
+  const [thumbFile, setThumbFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const thumbRef = useRef(null);
+
+  const filtered = videos.filter(v => {
+    const matchesFilter = filter === 'all' || v.type === filter;
+    const matchesSearch = v.title.toLowerCase().includes(search.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  const openEdit = (video) => {
+    setEditingVideo(video);
+    setForm({
+      title: video.title || '',
+      description: video.description || '',
+      type: video.type || 'movie',
+      genre: video.genre || '',
+      language: video.language || '',
+      release_year: video.release_year || '',
+    });
+    setThumbFile(null);
+  };
+
+  const closeEdit = () => {
+    setEditingVideo(null);
+    setThumbFile(null);
+  };
+
+  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+
+  const handleSave = async () => {
+    if (!form.title) return showToast('Title is required.', 'error');
+    setSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append('title', form.title);
+      formData.append('description', form.description);
+      formData.append('type', form.type);
+      formData.append('genre', form.genre);
+      formData.append('language', form.language);
+      formData.append('release_year', form.release_year);
+      if (thumbFile) formData.append('thumbnail', thumbFile);
+
+      await videoAPI.update(editingVideo.id, formData);
+      showToast('Video updated!');
+      closeEdit();
+      onRefresh();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to update video.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getThumbUrl = (video) => {
+    if (!video.thumbnail_path) return null;
+    const base = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    return `${base}/${video.thumbnail_path}`;
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <h2 style={{ fontSize: '20px', fontWeight: '700' }}>✏️ Edit Video Metadata</h2>
+        <input className="input" style={{ width: '240px' }} placeholder="🔍 Search videos..."
+          value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      {/* Filter buttons */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+        {[
+          { key: 'all', label: 'All' },
+          { key: 'movie', label: '🎬 Movies' },
+          { key: 'series', label: '📺 Episodes' },
+        ].map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`btn ${filter === f.key ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '8px 16px', fontSize: '13px' }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Video list */}
+      {!editingVideo && (
+        filtered.length === 0 ? (
+          <div className="empty-state">
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎬</div>
+            <h3>No videos found</h3>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {filtered.map(video => (
+              <div key={video.id} style={{
+                background: 'var(--bg-card)', border: '1px solid var(--border)',
+                borderRadius: '12px', padding: '14px 18px',
+                display: 'flex', alignItems: 'center',
+                justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    width: '44px', height: '44px', borderRadius: '8px',
+                    background: 'var(--bg-secondary)', overflow: 'hidden',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0,
+                  }}>
+                    {getThumbUrl(video)
+                      ? <img src={getThumbUrl(video)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : (video.type === 'movie' ? '🎬' : '📺')}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {video.title}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {video.genre && `${video.genre} • `}
+                      {video.language && `${video.language} • `}
+                      {video.release_year && `${video.release_year}`}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => openEdit(video)} className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '12px' }}>
+                  ✏️ Edit
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Edit form */}
+      {editingVideo && (
+        <div style={{ maxWidth: '700px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Editing: {editingVideo.title}</h3>
+            <button onClick={closeEdit} className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: '12px' }}>
+              ← Back to list
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                Title *
+              </label>
+              <input className="input" name="title" value={form.title} onChange={handleChange} />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                Type *
+              </label>
+              <select className="input" name="type" value={form.type} onChange={handleChange}>
+                <option value="movie">🎬 Movie</option>
+                <option value="series">📺 Series</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                Description
+              </label>
+              <textarea className="input" name="description" value={form.description} onChange={handleChange} rows={3} style={{ resize: 'vertical' }} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                  Genre
+                </label>
+                <select className="input" name="genre" value={form.genre} onChange={handleChange}>
+                  <option value="">Select Genre</option>
+                  {['Action', 'Comedy', 'Drama', 'Horror', 'Romance', 'Thriller', 'Sci-Fi', 'Animation', 'Documentary', 'Crime'].map(g => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                  Language
+                </label>
+                <select className="input" name="language" value={form.language} onChange={handleChange}>
+                  <option value="">Select Language</option>
+                  {['Hindi', 'English', 'Tamil', 'Telugu', 'Malayalam', 'Kannada', 'Bengali', 'Marathi'].map(l => (
+                    <option key={l} value={l}>{l}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                  Release Year
+                </label>
+                <input className="input" name="release_year" type="number" min="1900" max="2099" value={form.release_year} onChange={handleChange} />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+                Thumbnail
+              </label>
+              <div
+                onClick={() => thumbRef.current?.click()}
+                style={{
+                  border: '2px dashed var(--border)', borderRadius: '10px', padding: '16px',
+                  display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer',
+                }}
+              >
+                {(thumbFile || getThumbUrl(editingVideo)) && (
+                  <img
+                    src={thumbFile ? URL.createObjectURL(thumbFile) : getThumbUrl(editingVideo)}
+                    alt=""
+                    style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: '8px' }}
+                  />
+                )}
+                <div style={{ color: thumbFile ? 'var(--success)' : 'var(--text-muted)', fontSize: '13px' }}>
+                  {thumbFile ? thumbFile.name : 'Click to replace thumbnail'}
+                </div>
+              </div>
+              <input ref={thumbRef} type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={e => setThumbFile(e.target.files[0])} />
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={saving || !form.title}
+              className="btn btn-primary"
+              style={{ padding: '14px', fontSize: '15px', fontWeight: '700', justifyContent: 'center', opacity: saving || !form.title ? 0.6 : 1 }}
+            >
+              {saving ? '💾 Saving...' : '💾 Save Changes'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
 // PLAYLISTS TAB
 // ─────────────────────────────────────────────
 const PlaylistsTab = ({ playlists, videos, showToast, onRefresh }) => {
@@ -692,6 +1078,9 @@ const PlaylistsTab = ({ playlists, videos, showToast, onRefresh }) => {
   const [form, setForm] = useState({ title: '', description: '', is_featured: false });
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
   const [addingVideo, setAddingVideo] = useState('');
+  const [selectedVideos, setSelectedVideos] = useState([]);
+  const [videoSearch, setVideoSearch] = useState('');
+  const [adding, setAdding] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
@@ -710,16 +1099,31 @@ const PlaylistsTab = ({ playlists, videos, showToast, onRefresh }) => {
     }
   };
 
+  const toggleVideoSelect = (id) => {
+    setSelectedVideos(prev =>
+      prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]
+    );
+  };
+
   const handleAddVideo = async (playlistId) => {
-    if (!addingVideo) return showToast('Select a video.', 'error');
-    try {
-      await playlistAPI.addContent(playlistId, { content_id: addingVideo });
-      showToast('Video added!');
-      setAddingVideo('');
-      onRefresh();
-    } catch (err) {
-      showToast(err.response?.data?.message || 'Failed to add video.', 'error');
+    if (selectedVideos.length === 0) return showToast('Select at least one video.', 'error');
+    setAdding(true);
+    let successCount = 0;
+    let failCount = 0;
+    for (const id of selectedVideos) {
+      try {
+        await playlistAPI.addContent(playlistId, { content_id: id });
+        successCount++;
+      } catch (err) {
+        failCount++;
+      }
     }
+    setAdding(false);
+    setSelectedVideos([]);
+    setVideoSearch('');
+    if (successCount > 0) showToast(`${successCount} video(s) added!${failCount ? ` (${failCount} failed)` : ''}`);
+    else showToast('Failed to add videos.', 'error');
+    onRefresh();
   };
 
   const handleRemoveVideo = async (playlistId, contentId) => {
@@ -838,27 +1242,67 @@ const PlaylistsTab = ({ playlists, videos, showToast, onRefresh }) => {
             {selectedPlaylist?.id === playlist.id && (
               <div style={{ borderTop: '1px solid var(--border)', padding: '16px 20px' }}>
                 {/* Add Video */}
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                  <select
-                    className="input"
-                    style={{ flex: 1, minWidth: '200px' }}
-                    value={addingVideo}
-                    onChange={e => setAddingVideo(e.target.value)}
-                  >
-                    <option value="">Select video to add...</option>
-                    {videos.map(v => (
-                      <option key={v.id} value={v.id}>
-                        {v.type === 'movie' ? '🎬' : '📺'} {v.title}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => handleAddVideo(playlist.id)}
-                    className="btn btn-success"
-                    style={{ padding: '10px 16px' }}
-                  >
-                    + Add
-                  </button>
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                    <input
+                      className="input"
+                      style={{ flex: 1, minWidth: '200px' }}
+                      placeholder="🔍 Search videos to add..."
+                      value={videoSearch}
+                      onChange={e => setVideoSearch(e.target.value)}
+                    />
+                    <button
+                      onClick={() => handleAddVideo(playlist.id)}
+                      disabled={adding || selectedVideos.length === 0}
+                      className="btn btn-success"
+                      style={{ padding: '10px 16px' }}
+                    >
+                      {adding ? 'Adding...' : `+ Add Selected (${selectedVideos.length})`}
+                    </button>
+                  </div>
+
+                  <div style={{
+                    maxHeight: '260px',
+                    overflowY: 'auto',
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    background: 'var(--bg-card)',
+                  }}>
+                    {videos
+                      .filter(v => v.title.toLowerCase().includes(videoSearch.toLowerCase()))
+                      .map(v => {
+                        const alreadyIn = (playlist.videos || []).some(pv => pv.id === v.id);
+                        const isChecked = selectedVideos.includes(v.id);
+                        return (
+                          <label
+                            key={v.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              padding: '8px 12px',
+                              cursor: alreadyIn ? 'not-allowed' : 'pointer',
+                              opacity: alreadyIn ? 0.4 : 1,
+                              borderBottom: '1px solid var(--border)',
+                              fontSize: '13px',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={alreadyIn}
+                              onChange={() => toggleVideoSelect(v.id)}
+                            />
+                            <span>{v.type === 'movie' ? '🎬' : '📺'} {v.title}</span>
+                            {alreadyIn && (
+                              <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-muted)' }}>
+                                already added
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                  </div>
                 </div>
 
                 {/* Videos in playlist */}

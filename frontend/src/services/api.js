@@ -54,6 +54,10 @@ export const videoAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
   cancelUpload: (uploadId) => API.delete(`/api/content/cancel/${uploadId}`),
+  update: (id, formData) =>
+    API.put(`/api/content/${id}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
 };
 
 // ─────────────────────────────────────────────
@@ -66,6 +70,7 @@ export const playlistAPI = {
   addContent: (playlistId, data) => API.post(`/api/playlists/${playlistId}/add-content`, data),
   removeContent: (playlistId, contentId) => API.delete(`/api/playlists/${playlistId}/remove/${contentId}`),
   delete: (id) => API.delete(`/api/playlists/${id}`),
+  reorder: (id, order) => API.put(`/api/playlists/${id}/reorder`, { order }),
 };
 
 // ─────────────────────────────────────────────
