@@ -1,128 +1,179 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { playlistAPI, videoAPI, watchAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 
 // ─────────────────────────────────────────────
-// SVG ICONS (Clean YouTube Style)
+// SVG ICONS (Native YouTube Style)
 // ─────────────────────────────────────────────
-const PlayIcon = ({ size = 16, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="5 3 19 12 5 21 5 3" fill={color} />
+const HomeIcon = ({ active }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill={active ? "#fff" : "none"} stroke="currentColor" strokeWidth={active ? "0" : "1.8"}>
+    <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
   </svg>
 );
 
-const LockIcon = ({ size = 18, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-  </svg>
-);
-
-const HistoryIcon = ({ size = 16, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+const HistoryIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
     <circle cx="12" cy="12" r="10" />
     <polyline points="12 6 12 12 16 14" />
   </svg>
 );
 
-const SearchIcon = ({ size = 48, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8" />
-    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+const PlaylistIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M19 11H5M19 6H5M19 16H5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
 
-const ChevronLeft = ({ size = 20, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="15 18 9 12 15 6" />
+const LockIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
   </svg>
 );
 
-const ChevronRight = ({ size = 20, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="9 18 15 12 9 6" />
+const PlayIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="#000">
+    <polygon points="5 3 19 12 5 21 5 3" />
   </svg>
 );
 
-const VideoPlaceholderIcon = ({ size = 32, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-    <line x1="7" y1="2" x2="7" y2="22" />
-    <line x1="17" y1="2" x2="17" y2="22" />
-    <line x1="2" y1="12" x2="22" y2="12" />
-    <line x1="2" y1="7" x2="7" y2="7" />
-    <line x1="2" y1="17" x2="7" y2="17" />
-    <line x1="17" y1="17" x2="22" y2="17" />
-    <line x1="17" y1="7" x2="22" y2="7" />
+const MoreVerticalIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="12" cy="5" r="1.5"/>
+    <circle cx="12" cy="12" r="1.5"/>
+    <circle cx="12" cy="19" r="1.5"/>
   </svg>
 );
 
 // ─────────────────────────────────────────────
-// RESPONSIVE STYLES INJECTION
+// CSS STYLESHEET INJECTION
 // ─────────────────────────────────────────────
-const styleTag = `
-  .yt-container {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-  @media (min-width: 768px) {
-    .yt-container {
-      padding-left: 24px;
-      padding-right: 24px;
-    }
+const ytStyles = `
+  /* YouTube Layout Structure */
+  .yt-shell {
+    display: flex;
+    min-height: calc(100vh - 56px);
+    background-color: #0f0f0f;
+    color: #f1f1f1;
+    font-family: "Roboto", "Arial", sans-serif;
   }
 
-  .yt-card {
-    width: 160px;
+  /* Left Sidebar Drawer */
+  .yt-sidebar {
+    width: 240px;
+    background-color: #0f0f0f;
+    padding: 12px;
+    flex-shrink: 0;
+    display: none;
+    height: calc(100vh - 56px);
+    position: sticky;
+    top: 56px;
+    overflow-y: auto;
   }
-  @media (min-width: 640px) {
-    .yt-card {
-      width: 210px;
-    }
-  }
-
-  .yt-continue-card {
-    width: 200px;
-  }
-  @media (min-width: 640px) {
-    .yt-continue-card {
-      width: 240px;
-    }
+  @media (min-width: 1200px) {
+    .yt-sidebar { display: block; }
   }
 
-  .yt-nav-btn {
-    display: none !important;
+  .yt-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 10px 12px;
+    borderRadius: 10px;
+    color: #f1f1f1;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 400;
+    transition: background 0.15s;
   }
-  @media (min-width: 768px) {
-    .yt-nav-btn {
-      display: flex !important;
-    }
+  .yt-sidebar-item:hover {
+    background-color: #272727;
+  }
+  .yt-sidebar-item.active {
+    background-color: #272727;
+    font-weight: 500;
   }
 
-  .yt-row-scroll {
-    scroll-padding-left: 16px;
-  }
-  @media (min-width: 768px) {
-    .yt-row-scroll {
-      scroll-padding-left: 24px;
-    }
+  /* Main Feed Container */
+  .yt-main-feed {
+    flex: 1;
+    padding: 16px 24px;
+    min-width: 0;
   }
 
-  .yt-section-title {
-    font-size: 16px !important;
+  /* Category Chip Bar */
+  .yt-chips-container {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+    scrollbar-width: none;
+  }
+  .yt-chip {
+    background: #272727;
+    color: #f1f1f1;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    border: none;
+    transition: background 0.2s;
+  }
+  .yt-chip:hover {
+    background: #3f3f3f;
+  }
+  .yt-chip.active {
+    background: #f1f1f1;
+    color: #0f0f0f;
+  }
+
+  /* Grid Layout (3 to 4 columns like YouTube) */
+  .yt-grid {
+    display: grid;
+    grid-template-columns: repeat(1, 1fr);
+    gap: 20px 16px;
+  }
+  @media (min-width: 600px) {
+    .yt-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (min-width: 960px) {
+    .yt-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (min-width: 1400px) {
+    .yt-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+
+  /* Card Specs */
+  .yt-card-thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    background-color: #272727;
+  }
+  .yt-card-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #10b981;
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-weight: 700;
-  }
-  @media (min-width: 640px) {
-    .yt-section-title {
-      font-size: 19px !important;
-    }
+    font-size: 14px;
+    flex-shrink: 0;
   }
 `;
 
 // ─────────────────────────────────────────────
-// MAIN DASHBOARD COMPONENT
+// DASHBOARD COMPONENT
 // ─────────────────────────────────────────────
 const Dashboard = () => {
   const { user, isSubscribed, isAdmin } = useAuth();
@@ -134,6 +185,7 @@ const Dashboard = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [activeChip, setActiveChip] = useState('All');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -179,510 +231,172 @@ const Dashboard = () => {
     }
   };
 
+  // Flatten videos across playlists for a unified YouTube-style feed grid
+  const allVideos = playlists.flatMap(p => p.videos || []);
+
   if (loading) return (
     <div style={{ background: '#0f0f0f', minHeight: '100vh', color: '#fff' }}>
-      <style>{styleTag}</style>
+      <style>{ytStyles}</style>
       <Navbar />
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 70px)' }}>
-        <div style={{
-          width: '36px', height: '36px',
-          border: '3px solid rgba(16, 185, 129, 0.2)',
-          borderTop: '3px solid #10b981',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite'
-        }} />
-        <p style={{ color: '#aaa', marginTop: '14px', fontSize: '13px', letterSpacing: '0.2px' }}>
-          Loading YouTube Stream...
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
+        <div style={{ width: '40px', height: '40px', border: '3px solid #272727', borderTop: '3px solid #10b981', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
       </div>
     </div>
   );
 
   return (
-    <div style={{ background: '#0f0f0f', minHeight: '100vh', color: '#f1f1f1', fontFamily: 'Roboto, Arial, sans-serif' }}>
-      <style>{styleTag}</style>
+    <div style={{ backgroundColor: '#0f0f0f', minHeight: '100vh' }}>
+      <style>{ytStyles}</style>
       <Navbar />
 
-      {/* YouTube Compact Banner */}
-      {!searchQuery && (
-        <div style={{
-          position: 'relative',
-          padding: '24px 0',
-          background: 'radial-gradient(ellipse at 15% 50%, rgba(16, 185, 129, 0.12) 0%, rgba(15, 15, 15, 1) 70%)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          marginBottom: '20px'
-        }}>
-          <div className="yt-container" style={{ maxWidth: '1400px', margin: '0 auto' }}>
-            <div style={{
-              display: 'inline-block',
-              background: 'rgba(16, 185, 129, 0.12)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              borderRadius: '4px', padding: '2px 6px',
-              fontSize: '10px', color: '#34d399',
-              fontWeight: '700', marginBottom: '10px', letterSpacing: '0.8px', textTransform: 'uppercase'
-            }}>
-              OFFICIAL STREAMING
-            </div>
-            
-            <h1 style={{
-              fontSize: 'clamp(20px, 3.5vw, 32px)', fontWeight: '700',
-              lineHeight: '1.2', marginBottom: '8px', color: '#ffffff'
-            }}>
-              Welcome back,{' '}
-              <span style={{ color: '#34d399' }}>
-                {user?.name?.split(' ')[0]}
-              </span>
-            </h1>
+      <div className="yt-shell">
+        {/* Persistent YouTube Left Sidebar */}
+        <aside className="yt-sidebar">
+          <Link to="/dashboard" className="yt-sidebar-item active">
+            <HomeIcon active={true} />
+            <span>Home</span>
+          </Link>
+          <Link to="/history" className="yt-sidebar-item">
+            <HistoryIcon />
+            <span>History</span>
+          </Link>
+          <div style={{ height: '1px', background: '#272727', margin: '12px 0' }} />
+          <div style={{ fontSize: '14px', fontWeight: '500', padding: '0 12px 8px', color: '#aaa' }}>
+            Subscriptions
+          </div>
+          {playlists.map(p => (
+            <Link key={p.id} to={`/playlist/${p.id}`} className="yt-sidebar-item">
+              <PlaylistIcon />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
+            </Link>
+          ))}
+        </aside>
 
-            <p style={{ color: '#aaa', fontSize: '13px', lineHeight: '1.4', marginBottom: '18px', maxWidth: '540px' }}>
-              {isSubscribed || isAdmin
-                ? `Subscription active • ${playlists.length} playlists unlocked`
-                : 'Subscribe to access full episode lists and movies'}
-            </p>
+        {/* Main Feed Section */}
+        <main className="yt-main-feed">
+          {/* Filter Tag Chips (YouTube Header Bar) */}
+          <div className="yt-chips-container">
+            {['All', 'Continue Watching', ...playlists.map(p => p.title)].map((chip) => (
+              <button
+                key={chip}
+                onClick={() => setActiveChip(chip)}
+                className={`yt-chip ${activeChip === chip ? 'active' : ''}`}
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
 
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              {isSubscribed || isAdmin ? (
-                <Link to={playlists[0] ? `/playlist/${playlists[0].id}` : '/dashboard'} style={{
-                  padding: '8px 18px', fontSize: '13px', borderRadius: '18px',
-                  background: '#10b981', color: '#0f0f0f', fontWeight: '700',
-                  textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px'
-                }}>
-                  <PlayIcon size={13} color="#0f0f0f" /> Start Watching
-                </Link>
+          {/* Search Results Display */}
+          {searchQuery ? (
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: '500', marginBottom: '20px' }}>
+                Search results for <span style={{ color: '#fff', fontWeight: '700' }}>"{searchQuery}"</span>
+              </h2>
+              {searchLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px' }}>Searching...</div>
               ) : (
-                <Link to="/subscribe" style={{
-                  padding: '8px 18px', fontSize: '13px', borderRadius: '18px',
-                  background: '#10b981', color: '#0f0f0f', fontWeight: '700',
-                  textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px'
-                }}>
-                  Subscribe Now
-                </Link>
+                <div className="yt-grid">
+                  {searchResults.map(video => (
+                    <VideoCard key={video.id} video={video} isSubscribed={isSubscribed} isAdmin={isAdmin} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Continue Watching Row (If Available) */}
+              {(activeChip === 'All' || activeChip === 'Continue Watching') && continueWatching.length > 0 && (
+                <div style={{ marginBottom: '32px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>Continue watching</h2>
+                  </div>
+                  <div className="yt-grid">
+                    {continueWatching.map(video => (
+                      <VideoCard key={video.video_id || video.id} video={{ ...video, id: video.video_id }} isSubscribed={isSubscribed} isAdmin={isAdmin} isContinue={true} />
+                    ))}
+                  </div>
+                </div>
               )}
 
-              <Link to="/history" style={{
-                padding: '8px 16px', fontSize: '13px', borderRadius: '18px',
-                background: 'rgba(255,255,255,0.1)', color: '#fff',
-                fontWeight: '500', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px'
-              }}>
-                <HistoryIcon size={14} color="#fff" /> Watch History
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Stream Rows */}
-      <div style={{ maxWidth: '1400px', margin: '0 auto', paddingBottom: '40px' }}>
-        {searchQuery && (
-          <div className="yt-container" style={{ paddingTop: '16px' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: '500', marginBottom: '16px', color: '#aaa' }}>
-              Results for <span style={{ color: '#fff', fontWeight: '700' }}>"{searchQuery}"</span>
-            </h2>
-            
-            {searchLoading ? (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-                <div style={{
-                  width: '32px', height: '32px',
-                  border: '3px solid rgba(16, 185, 129, 0.2)',
-                  borderTop: '3px solid #10b981',
-                  borderRadius: '50%',
-                  animation: 'spin 0.8s linear infinite'
-                }} />
-              </div>
-            ) : searchResults.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', color: '#666' }}>
-                  <SearchIcon size={44} />
-                </div>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '4px', color: '#f1f1f1' }}>
-                  No results found
-                </h3>
-                <p style={{ color: '#aaa', fontSize: '13px' }}>Try searching with different terms</p>
-              </div>
-            ) : (
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                gap: '16px'
-              }}>
-                {searchResults.map(video => (
-                  <VideoCard key={video.id} video={video} isSubscribed={isSubscribed} isAdmin={isAdmin} />
+              {/* Main YouTube Multi-Column Video Grid */}
+              <div className="yt-grid">
+                {(activeChip === 'All' ? allVideos : playlists.find(p => p.title === activeChip)?.videos || []).map((video, idx) => (
+                  <VideoCard key={video.id || idx} video={video} isSubscribed={isSubscribed} isAdmin={isAdmin} />
                 ))}
               </div>
-            )}
-          </div>
-        )}
-
-        {!searchQuery && continueWatching.length > 0 && (
-          <PlaylistRow
-            title="Continue Watching"
-            videos={continueWatching.map(v => ({ ...v, id: v.video_id, progress_percent: v.progress_percent }))}
-            isSubscribed={isSubscribed}
-            isAdmin={isAdmin}
-            isContinue={true}
-          />
-        )}
-
-        {!searchQuery && playlists.length === 0 ? (
-          <div style={{
-            textAlign: 'center', padding: '60px 20px',
-            maxWidth: '420px', margin: '30px auto',
-            background: 'rgba(255,255,255,0.03)', borderRadius: '12px',
-            border: '1px solid rgba(255,255,255,0.05)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', color: '#555' }}>
-              <VideoPlaceholderIcon size={40} />
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '6px', color: '#fff' }}>
-              No Playlists Available
-            </h3>
-            <p style={{ color: '#aaa', marginBottom: '16px', fontSize: '13px' }}>
-              {isAdmin ? 'Create new playlists from your Admin Panel.' : 'New streams will be uploaded soon.'}
-            </p>
-            {isAdmin && (
-              <Link to="/admin" style={{
-                padding: '8px 18px', background: '#10b981', color: '#0f0f0f',
-                borderRadius: '18px', fontWeight: '700', textDecoration: 'none', fontSize: '13px'
-              }}>
-                + Create Playlist
-              </Link>
-            )}
-          </div>
-        ) : (
-          !searchQuery && playlists.map(playlist => (
-            <PlaylistRow
-              key={playlist.id}
-              title={playlist.title}
-              playlistId={playlist.id}
-              description={playlist.description}
-              videos={playlist.videos || []}
-              isSubscribed={isSubscribed}
-              isAdmin={isAdmin}
-              isFeatured={playlist.is_featured}
-            />
-          ))
-        )}
+            </>
+          )}
+        </main>
       </div>
     </div>
   );
 };
 
 // ─────────────────────────────────────────────
-// EXPANDABLE DESCRIPTION
+// YOUTUBE VIDEO CARD COMPONENT
 // ─────────────────────────────────────────────
-const ExpandableDescription = ({ description }) => {
-  const [expanded, setExpanded] = useState(false);
-  const short = description.length > 90;
-  return (
-    <p style={{ fontSize: '12px', color: '#aaa', marginTop: '2px', maxWidth: '680px', lineHeight: '1.4' }}>
-      {expanded || !short ? description : `${description.slice(0, 90)}...`}
-      {short && (
-        <span
-          onClick={(e) => { e.preventDefault(); setExpanded(!expanded); }}
-          style={{ color: '#34d399', cursor: 'pointer', marginLeft: '6px', fontWeight: '600' }}
-        >
-          {expanded ? ' Less' : ' More'}
-        </span>
-      )}
-    </p>
-  );
-};
-
-// ─────────────────────────────────────────────
-// PLAYLIST ROW (Mobile Touch Carousel + Desktop Navigation)
-// ─────────────────────────────────────────────
-const PlaylistRow = ({ title, playlistId, description, videos, isSubscribed, isAdmin, isContinue, isFeatured }) => {
-  const rowRef = useRef(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(true);
-
-  const checkScroll = () => {
-    const el = rowRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 10);
-    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 10);
-  };
-
-  useEffect(() => {
-    checkScroll();
-    window.addEventListener('resize', checkScroll);
-    return () => window.removeEventListener('resize', checkScroll);
-  }, [videos]);
-
-  const scroll = (dir) => {
-    const el = rowRef.current;
-    if (!el) return;
-    el.scrollBy({ left: dir * 450, behavior: 'smooth' });
-    setTimeout(checkScroll, 300);
-  };
-
-  if (videos.length === 0) return null;
-
-  return (
-    <div style={{ marginBottom: '28px', position: 'relative' }}>
-      {/* YouTube Section Header */}
-      <div className="yt-container" style={{
-        display: 'flex', alignItems: 'flex-start',
-        justifyContent: 'space-between', marginBottom: '10px'
-      }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <h2 className="yt-section-title" style={{ color: '#fff', letterSpacing: '-0.2px', margin: 0, textTransform: 'none' }}>
-              {title}
-            </h2>
-            {isFeatured && (
-              <span style={{
-                background: '#10b981', color: '#0f0f0f',
-                fontSize: '9px', fontWeight: '800',
-                padding: '2px 5px', borderRadius: '3px', textTransform: 'uppercase'
-              }}>
-                Featured
-              </span>
-            )}
-            <span style={{ fontSize: '12px', color: '#aaa', fontWeight: '400' }}>
-              • {videos.length} {videos.length === 1 ? 'video' : 'videos'}
-            </span>
-          </div>
-          {description && <ExpandableDescription description={description} />}
-        </div>
-
-        {playlistId && (
-          <Link to={`/playlist/${playlistId}`} style={{
-            color: '#34d399', fontSize: '13px', fontWeight: '600',
-            textDecoration: 'none', flexShrink: 0, marginLeft: '12px', paddingTop: '2px'
-          }}>
-            View All
-          </Link>
-        )}
-      </div>
-
-      {/* Row Horizontal Scroll Container */}
-      <div style={{ position: 'relative', width: '100%' }}>
-        {canScrollLeft && (
-          <button className="yt-nav-btn" onClick={() => scroll(-1)} style={{
-            position: 'absolute', left: '12px', top: '38%',
-            transform: 'translateY(-50%)', zIndex: 10,
-            width: '36px', height: '36px', borderRadius: '50%',
-            background: 'rgba(33, 33, 33, 0.95)', border: '1px solid rgba(255,255,255,0.1)',
-            color: '#fff', cursor: 'pointer', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 4px 8px rgba(0,0,0,0.6)'
-          }}>
-            <ChevronLeft />
-          </button>
-        )}
-
-        <div
-          ref={rowRef}
-          onScroll={checkScroll}
-          className="yt-row-scroll yt-container"
-          style={{
-            display: 'flex', gap: '12px', overflowX: 'auto',
-            paddingTop: '2px', paddingBottom: '6px',
-            scrollbarWidth: 'none', msOverflowStyle: 'none',
-            scrollSnapType: 'x mandatory'
-          }}
-        >
-          {videos.map((video, index) => (
-            <div key={video.id || index} style={{ scrollSnapAlign: 'start', flexShrink: 0 }}>
-              {isContinue
-                ? <ContinueCard video={video} />
-                : <VideoCard video={video} index={index} isSubscribed={isSubscribed} isAdmin={isAdmin} />
-              }
-            </div>
-          ))}
-        </div>
-
-        {canScrollRight && (
-          <button className="yt-nav-btn" onClick={() => scroll(1)} style={{
-            position: 'absolute', right: '12px', top: '38%',
-            transform: 'translateY(-50%)', zIndex: 10,
-            width: '36px', height: '36px', borderRadius: '50%',
-            background: 'rgba(33, 33, 33, 0.95)', border: '1px solid rgba(255,255,255,0.1)',
-            color: '#fff', cursor: 'pointer', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 4px 8px rgba(0,0,0,0.6)'
-          }}>
-            <ChevronRight />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ─────────────────────────────────────────────
-// YOUTUBE VIDEO CARD
-// ─────────────────────────────────────────────
-const VideoCard = ({ video, index, isSubscribed, isAdmin }) => {
+const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
   const canWatch = isSubscribed || isAdmin;
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-  const [hovered, setHovered] = useState(false);
 
   return (
-    <Link to={canWatch ? `/video/${video.id}` : '/subscribe'} style={{ textDecoration: 'none', display: 'block' }}>
-      <div
-        className="yt-card"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
-        {/* Thumbnail Outer Aspect Container (16:9) */}
-        <div style={{
-          width: '100%', aspectRatio: '16/9', borderRadius: '8px',
-          background: video.thumbnail_path
-            ? `url(${apiBase}/${video.thumbnail_path}) center/cover`
-            : 'linear-gradient(135deg, #182820, #0f1712)',
-          position: 'relative', overflow: 'hidden', marginBottom: '8px',
-          border: hovered ? '2px solid #10b981' : '2px solid transparent',
-          transition: 'border-color 0.2s'
+    <Link to={canWatch ? `/video/${video.id}` : '/subscribe'} style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* 16:9 Aspect Ratio Thumbnail Box */}
+        <div className="yt-card-thumb" style={{
+          backgroundImage: video.thumbnail_path ? `url(${apiBase}/${video.thumbnail_path})` : 'none',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
         }}>
-          {!video.thumbnail_path && (
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#274535'
-            }}>
-              <VideoPlaceholderIcon size={32} />
-            </div>
-          )}
-
           {!canWatch && (
-            <div style={{
-              position: 'absolute', inset: 0, background: 'rgba(15, 15, 15, 0.75)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)'
-            }}>
-              <div style={{
-                background: 'rgba(0,0,0,0.7)', padding: '6px', borderRadius: '50%', color: '#34d399'
-              }}>
-                <LockIcon size={16} />
-              </div>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <LockIcon />
             </div>
           )}
 
-          {canWatch && hovered && (
-            <div style={{
-              position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}>
-              <div style={{
-                width: '34px', height: '34px', borderRadius: '50%',
-                background: '#10b981',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#0f0f0f'
-              }}>
-                <PlayIcon size={13} color="#0f0f0f" />
-              </div>
-            </div>
-          )}
-
-          {index !== undefined && (
-            <div style={{
-              position: 'absolute', top: '4px', left: '4px',
-              background: 'rgba(0,0,0,0.8)', borderRadius: '3px',
-              padding: '1px 5px', fontSize: '10px', fontWeight: '700', color: '#ccc'
-            }}>
-              {index + 1}
-            </div>
-          )}
-
+          {/* Duration / EP Badge */}
           <div style={{
-            position: 'absolute', bottom: '4px', right: '4px',
-            background: video.type === 'movie' ? '#10b981' : 'rgba(0,0,0,0.85)',
-            borderRadius: '3px', padding: '1px 5px', fontSize: '9px', fontWeight: '800',
-            color: video.type === 'movie' ? '#0f0f0f' : '#fff', textTransform: 'uppercase'
+            position: 'absolute', bottom: '8px', right: '8px',
+            background: 'rgba(0, 0, 0, 0.8)', color: '#fff',
+            fontSize: '12px', fontWeight: '500', padding: '2px 4px', borderRadius: '4px'
           }}>
-            {video.type === 'movie' ? 'Movie' : 'EP'}
+            {video.type === 'movie' ? 'MOVIE' : 'EP'}
           </div>
+
+          {/* Continue Watching Progress Line */}
+          {isContinue && (
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.2)' }}>
+              <div style={{ height: '100%', width: `${video.progress_percent || 0}%`, background: '#10b981' }} />
+            </div>
+          )}
         </div>
 
-        {/* Video Title and Metadata */}
-        <div>
-          <div style={{
-            fontSize: '13px', fontWeight: '500',
-            color: hovered ? '#34d399' : '#f1f1f1',
-            lineHeight: '1.3',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            marginBottom: '3px'
-          }}>
-            {video.title}
+        {/* Video Info (Avatar + Details Stack) */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+          <div className="yt-card-avatar">
+            {video.title ? video.title.charAt(0).toUpperCase() : 'V'}
           </div>
           
-          <div style={{ fontSize: '11px', color: '#aaa', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span>{video.genre || 'Stream'}</span>
-            <span>•</span>
-            <span>HD</span>
-          </div>
-        </div>
-      </div>
-    </Link>
-  );
-};
-
-// ─────────────────────────────────────────────
-// CONTINUE WATCHING CARD
-// ─────────────────────────────────────────────
-const ContinueCard = ({ video }) => {
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-  const [hovered, setHovered] = useState(false);
-
-  return (
-    <Link to={`/video/${video.id || video.video_id}`} style={{ textDecoration: 'none', display: 'block' }}>
-      <div
-        className="yt-continue-card"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-      >
-        <div style={{
-          width: '100%', aspectRatio: '16/9', borderRadius: '8px',
-          background: video.thumbnail_path
-            ? `url(${apiBase}/${video.thumbnail_path}) center/cover`
-            : 'linear-gradient(135deg, #182820, #0f1712)',
-          position: 'relative', overflow: 'hidden', marginBottom: '6px',
-          border: hovered ? '2px solid #10b981' : '2px solid transparent',
-          transition: 'border-color 0.2s'
-        }}>
-          {!video.thumbnail_path && (
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#274535'
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 style={{
+              fontSize: '15px', fontWeight: '500', color: '#f1f1f1',
+              lineHeight: '1.3', margin: '0 0 4px 0',
+              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+              overflow: 'hidden', textOverflow: 'ellipsis'
             }}>
-              <VideoPlaceholderIcon size={36} />
-            </div>
-          )}
+              {video.title}
+            </h3>
 
-          <div style={{
-            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.25)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            <div style={{
-              width: '36px', height: '36px', borderRadius: '50%',
-              background: '#10b981',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#0f0f0f', opacity: hovered ? 1 : 0.85
-            }}>
-              <PlayIcon size={13} color="#0f0f0f" />
+            <div style={{ fontSize: '12px', color: '#aaa', lineHeight: '1.4' }}>
+              <div>{video.genre || 'Suffoclix Original'}</div>
+              <div>{isContinue ? `${video.progress_percent || 0}% completed` : 'Official Release • HD'}</div>
             </div>
           </div>
 
-          {/* YouTube Bottom Red Progress Indicator switched to Crystal Green */}
-          <div style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            height: '3px', background: 'rgba(255,255,255,0.25)'
-          }}>
-            <div style={{ height: '100%', width: `${video.progress_percent || 0}%`, background: '#10b981' }} />
+          <div style={{ color: '#aaa', cursor: 'pointer' }}>
+            <MoreVerticalIcon />
           </div>
-        </div>
-
-        <div style={{
-          fontSize: '13px', fontWeight: '500',
-          color: hovered ? '#34d399' : '#f1f1f1',
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px'
-        }}>
-          {video.title}
-        </div>
-        <div style={{ fontSize: '11px', color: '#aaa' }}>
-          {video.progress_percent || 0}% completed
         </div>
       </div>
     </Link>
