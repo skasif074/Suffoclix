@@ -5,7 +5,7 @@ import { playlistAPI, videoAPI, watchAPI } from '../services/api';
 import Navbar from '../components/Navbar';
 
 // ─────────────────────────────────────────────
-// SVG ICONS (Native YouTube Style)
+// SVG ICONS
 // ─────────────────────────────────────────────
 const HomeIcon = ({ active }) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill={active ? "#fff" : "none"} stroke="currentColor" strokeWidth={active ? "0" : "1.8"}>
@@ -33,12 +33,6 @@ const LockIcon = () => (
   </svg>
 );
 
-const PlayIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="#000">
-    <polygon points="5 3 19 12 5 21 5 3" />
-  </svg>
-);
-
 const MoreVerticalIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
     <circle cx="12" cy="5" r="1.5"/>
@@ -47,11 +41,20 @@ const MoreVerticalIcon = () => (
   </svg>
 );
 
+// Helper function to randomly shuffle videos array (YouTube recommendation style)
+const shuffleArray = (array) => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
 // ─────────────────────────────────────────────
 // CSS STYLESHEET INJECTION
 // ─────────────────────────────────────────────
 const ytStyles = `
-  /* YouTube Layout Structure */
   .yt-shell {
     display: flex;
     min-height: calc(100vh - 56px);
@@ -60,7 +63,6 @@ const ytStyles = `
     font-family: "Roboto", "Arial", sans-serif;
   }
 
-  /* Left Sidebar Drawer */
   .yt-sidebar {
     width: 240px;
     background-color: #0f0f0f;
@@ -81,29 +83,22 @@ const ytStyles = `
     align-items: center;
     gap: 24px;
     padding: 10px 12px;
-    borderRadius: 10px;
+    border-radius: 10px;
     color: #f1f1f1;
     text-decoration: none;
     font-size: 14px;
     font-weight: 400;
     transition: background 0.15s;
   }
-  .yt-sidebar-item:hover {
-    background-color: #272727;
-  }
-  .yt-sidebar-item.active {
-    background-color: #272727;
-    font-weight: 500;
-  }
+  .yt-sidebar-item:hover { background-color: #272727; }
+  .yt-sidebar-item.active { background-color: #272727; font-weight: 500; }
 
-  /* Main Feed Container */
   .yt-main-feed {
     flex: 1;
     padding: 16px 24px;
     min-width: 0;
   }
 
-  /* Category Chip Bar */
   .yt-chips-container {
     display: flex;
     gap: 12px;
@@ -124,15 +119,9 @@ const ytStyles = `
     border: none;
     transition: background 0.2s;
   }
-  .yt-chip:hover {
-    background: #3f3f3f;
-  }
-  .yt-chip.active {
-    background: #f1f1f1;
-    color: #0f0f0f;
-  }
+  .yt-chip:hover { background: #3f3f3f; }
+  .yt-chip.active { background: #f1f1f1; color: #0f0f0f; }
 
-  /* Grid Layout (3 to 4 columns like YouTube) */
   .yt-grid {
     display: grid;
     grid-template-columns: repeat(1, 1fr);
@@ -148,7 +137,6 @@ const ytStyles = `
     .yt-grid { grid-template-columns: repeat(4, 1fr); }
   }
 
-  /* Card Specs */
   .yt-card-thumb {
     width: 100%;
     aspect-ratio: 16 / 9;
@@ -183,6 +171,7 @@ const Dashboard = () => {
   const [playlists, setPlaylists] = useState([]);
   const [continueWatching, setContinueWatching] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
+  const [randomizedFeed, setRandomizedFeed] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchLoading, setSearchLoading] = useState(false);
   const [activeChip, setActiveChip] = useState('All');
@@ -206,12 +195,26 @@ const Dashboard = () => {
       const playlistsWithVideos = await Promise.all(
         playlistRes.data.playlists.map(async (p) => {
           const res = await playlistAPI.getOne(p.id);
-          return { ...p, videos: res.data.playlist.videos || [] };
+          const vids = res.data.playlist.videos || [];
+          // Attach parent playlist details to each video object so player page knows which playlist it belongs to
+          return {
+            ...p,
+            videos: vids.map(v => ({
+              ...v,
+              playlist_id: p.id,
+              playlist_title: p.title
+            }))
+          };
         })
       );
 
       setPlaylists(playlistsWithVideos);
       setContinueWatching(continueRes.data.videos || []);
+
+      // Extract all videos across all playlists and shuffle them for random YouTube Home Feed
+      const extractedVideos = playlistsWithVideos.flatMap(p => p.videos || []);
+      setRandomizedFeed(shuffleArray(extractedVideos));
+
     } catch (err) {
       console.error('Dashboard error:', err);
     } finally {
@@ -231,9 +234,6 @@ const Dashboard = () => {
     }
   };
 
-  // Flatten videos across playlists for a unified YouTube-style feed grid
-  const allVideos = playlists.flatMap(p => p.videos || []);
-
   if (loading) return (
     <div style={{ background: '#0f0f0f', minHeight: '100vh', color: '#fff' }}>
       <style>{ytStyles}</style>
@@ -250,7 +250,7 @@ const Dashboard = () => {
       <Navbar />
 
       <div className="yt-shell">
-        {/* Persistent YouTube Left Sidebar */}
+        {/* Left Sidebar */}
         <aside className="yt-sidebar">
           <Link to="/dashboard" className="yt-sidebar-item active">
             <HomeIcon active={true} />
@@ -274,7 +274,7 @@ const Dashboard = () => {
 
         {/* Main Feed Section */}
         <main className="yt-main-feed">
-          {/* Filter Tag Chips (YouTube Header Bar) */}
+          {/* Category Chip Bar */}
           <div className="yt-chips-container">
             {['All', 'Continue Watching', ...playlists.map(p => p.title)].map((chip) => (
               <button
@@ -305,7 +305,7 @@ const Dashboard = () => {
             </div>
           ) : (
             <>
-              {/* Continue Watching Row (If Available) */}
+              {/* Continue Watching Section */}
               {(activeChip === 'All' || activeChip === 'Continue Watching') && continueWatching.length > 0 && (
                 <div style={{ marginBottom: '32px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
@@ -319,12 +319,17 @@ const Dashboard = () => {
                 </div>
               )}
 
-              {/* Main YouTube Multi-Column Video Grid */}
-              <div className="yt-grid">
-                {(activeChip === 'All' ? allVideos : playlists.find(p => p.title === activeChip)?.videos || []).map((video, idx) => (
-                  <VideoCard key={video.id || idx} video={video} isSubscribed={isSubscribed} isAdmin={isAdmin} />
-                ))}
-              </div>
+              {/* Main Feed Video Grid (Randomized for 'All', or Filtered by Playlist Tag) */}
+              {activeChip !== 'Continue Watching' && (
+                <div className="yt-grid">
+                  {(activeChip === 'All' 
+                    ? randomizedFeed 
+                    : playlists.find(p => p.title === activeChip)?.videos || []
+                  ).map((video, idx) => (
+                    <VideoCard key={video.id || idx} video={video} isSubscribed={isSubscribed} isAdmin={isAdmin} />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </main>
@@ -340,10 +345,15 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
   const canWatch = isSubscribed || isAdmin;
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+  // Construct target watch URL. If video has a parent playlist_id, pass it in query string so Video/Watch page loads its playlist automatically!
+  const targetUrl = canWatch 
+    ? (video.playlist_id ? `/video/${video.id}?playlist=${video.playlist_id}` : `/video/${video.id}`)
+    : '/subscribe';
+
   return (
-    <Link to={canWatch ? `/video/${video.id}` : '/subscribe'} style={{ textDecoration: 'none', color: 'inherit' }}>
+    <Link to={targetUrl} style={{ textDecoration: 'none', color: 'inherit' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {/* 16:9 Aspect Ratio Thumbnail Box */}
+        {/* 16:9 Thumbnail Box */}
         <div className="yt-card-thumb" style={{
           backgroundImage: video.thumbnail_path ? `url(${apiBase}/${video.thumbnail_path})` : 'none',
           backgroundSize: 'cover',
@@ -355,7 +365,7 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
             </div>
           )}
 
-          {/* Duration / EP Badge */}
+          {/* Badge */}
           <div style={{
             position: 'absolute', bottom: '8px', right: '8px',
             background: 'rgba(0, 0, 0, 0.8)', color: '#fff',
@@ -364,7 +374,7 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
             {video.type === 'movie' ? 'MOVIE' : 'EP'}
           </div>
 
-          {/* Continue Watching Progress Line */}
+          {/* Progress Bar for Continue Watching */}
           {isContinue && (
             <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.2)' }}>
               <div style={{ height: '100%', width: `${video.progress_percent || 0}%`, background: '#10b981' }} />
@@ -372,7 +382,7 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
           )}
         </div>
 
-        {/* Video Info (Avatar + Details Stack) */}
+        {/* Video Info Stack */}
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
           <div className="yt-card-avatar">
             {video.title ? video.title.charAt(0).toUpperCase() : 'V'}
@@ -389,7 +399,7 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
             </h3>
 
             <div style={{ fontSize: '12px', color: '#aaa', lineHeight: '1.4' }}>
-              <div>{video.genre || 'Suffoclix Original'}</div>
+              <div>{video.playlist_title || video.genre || 'Suffoclix Original'}</div>
               <div>{isContinue ? `${video.progress_percent || 0}% completed` : 'Official Release • HD'}</div>
             </div>
           </div>
