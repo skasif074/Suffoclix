@@ -41,7 +41,7 @@ const MoreVerticalIcon = () => (
   </svg>
 );
 
-// Helper function to randomly shuffle videos array (YouTube recommendation style)
+// Helper function to randomly shuffle videos array (YouTube Home Feed algorithm style)
 const shuffleArray = (array) => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -158,6 +158,26 @@ const ytStyles = `
     font-size: 14px;
     flex-shrink: 0;
   }
+
+  .yt-load-more-btn {
+    display: block;
+    margin: 40px auto 20px auto;
+    background-color: #272727;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 18px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+  }
+  .yt-load-more-btn:hover {
+    background-color: #3f3f3f;
+  }
+  .yt-load-more-btn:active {
+    transform: scale(0.98);
+  }
 `;
 
 // ─────────────────────────────────────────────
@@ -176,12 +196,20 @@ const Dashboard = () => {
   const [searchLoading, setSearchLoading] = useState(false);
   const [activeChip, setActiveChip] = useState('All');
 
+  // Pagination state: Limit initial items to 40 (~10 rows on desktop grids) and load 20 more per click
+  const [visibleCount, setVisibleCount] = useState(40);
+
   useEffect(() => { fetchData(); }, []);
 
   useEffect(() => {
     if (searchQuery) handleSearch(searchQuery);
     else setSearchResults([]);
   }, [searchQuery]);
+
+  // Reset pagination count when switching category chips
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [activeChip]);
 
   const fetchData = async () => {
     try {
@@ -196,7 +224,6 @@ const Dashboard = () => {
         playlistRes.data.playlists.map(async (p) => {
           const res = await playlistAPI.getOne(p.id);
           const vids = res.data.playlist.videos || [];
-          // Attach parent playlist details to each video object so player page knows which playlist it belongs to
           return {
             ...p,
             videos: vids.map(v => ({
@@ -211,7 +238,6 @@ const Dashboard = () => {
       setPlaylists(playlistsWithVideos);
       setContinueWatching(continueRes.data.videos || []);
 
-      // Extract all videos across all playlists and shuffle them for random YouTube Home Feed
       const extractedVideos = playlistsWithVideos.flatMap(p => p.videos || []);
       setRandomizedFeed(shuffleArray(extractedVideos));
 
@@ -233,6 +259,16 @@ const Dashboard = () => {
       setSearchLoading(false);
     }
   };
+
+  // Determine current active list based on selected chip
+  const getActiveList = () => {
+    if (activeChip === 'All') return randomizedFeed;
+    const foundPlaylist = playlists.find(p => p.title === activeChip);
+    return foundPlaylist ? foundPlaylist.videos : [];
+  };
+
+  const currentList = getActiveList();
+  const displayedVideos = currentList.slice(0, visibleCount);
 
   if (loading) return (
     <div style={{ background: '#0f0f0f', minHeight: '100vh', color: '#fff' }}>
@@ -319,16 +355,25 @@ const Dashboard = () => {
                 </div>
               )}
 
-              {/* Main Feed Video Grid (Randomized for 'All', or Filtered by Playlist Tag) */}
+              {/* Main Feed Video Grid (Paginated) */}
               {activeChip !== 'Continue Watching' && (
-                <div className="yt-grid">
-                  {(activeChip === 'All' 
-                    ? randomizedFeed 
-                    : playlists.find(p => p.title === activeChip)?.videos || []
-                  ).map((video, idx) => (
-                    <VideoCard key={video.id || idx} video={video} isSubscribed={isSubscribed} isAdmin={isAdmin} />
-                  ))}
-                </div>
+                <>
+                  <div className="yt-grid">
+                    {displayedVideos.map((video, idx) => (
+                      <VideoCard key={video.id || idx} video={video} isSubscribed={isSubscribed} isAdmin={isAdmin} />
+                    ))}
+                  </div>
+
+                  {/* Load More Button */}
+                  {visibleCount < currentList.length && (
+                    <button 
+                      onClick={() => setVisibleCount(prev => prev + 20)} 
+                      className="yt-load-more-btn"
+                    >
+                      Load More
+                    </button>
+                  )}
+                </>
               )}
             </>
           )}
@@ -345,7 +390,6 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
   const canWatch = isSubscribed || isAdmin;
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-  // Construct target watch URL. If video has a parent playlist_id, pass it in query string so Video/Watch page loads its playlist automatically!
   const targetUrl = canWatch 
     ? (video.playlist_id ? `/video/${video.id}?playlist=${video.playlist_id}` : `/video/${video.id}`)
     : '/subscribe';
@@ -353,7 +397,6 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
   return (
     <Link to={targetUrl} style={{ textDecoration: 'none', color: 'inherit' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {/* 16:9 Thumbnail Box */}
         <div className="yt-card-thumb" style={{
           backgroundImage: video.thumbnail_path ? `url(${apiBase}/${video.thumbnail_path})` : 'none',
           backgroundSize: 'cover',
@@ -365,7 +408,6 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
             </div>
           )}
 
-          {/* Badge */}
           <div style={{
             position: 'absolute', bottom: '8px', right: '8px',
             background: 'rgba(0, 0, 0, 0.8)', color: '#fff',
@@ -374,7 +416,6 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
             {video.type === 'movie' ? 'MOVIE' : 'EP'}
           </div>
 
-          {/* Progress Bar for Continue Watching */}
           {isContinue && (
             <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.2)' }}>
               <div style={{ height: '100%', width: `${video.progress_percent || 0}%`, background: '#10b981' }} />
@@ -382,7 +423,6 @@ const VideoCard = ({ video, isSubscribed, isAdmin, isContinue }) => {
           )}
         </div>
 
-        {/* Video Info Stack */}
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
           <div className="yt-card-avatar">
             {video.title ? video.title.charAt(0).toUpperCase() : 'V'}
